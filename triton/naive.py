@@ -1,4 +1,3 @@
-from typing import Any, Callable
 import torch
 import triton
 import triton.language as tl
@@ -6,39 +5,46 @@ from loguru import logger
 
 
 @triton.jit
-def matmul_kernel_naive(
-    # Pointers to matrices
-    a_ptr,
-    b_ptr,
-    c_ptr,
-    # Matrix dimensions
+def matmul_naive_kernel(
+    A_ptr,
+    B_ptr,
+    C_ptr,
     M: tl.constexpr,
     N: tl.constexpr,
     K: tl.constexpr,
+    alpha: tl.constexpr,
+    beta: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
 ):
-    # Each program/thread computes one element of C
-    pid_m = tl.program_id(0)
-    pid_n = tl.program_id(1)
+    # Program IDs: each kernel instance computes a tile of C
+    pid_m = tl.program_id(0)  # along M
+    pid_n = tl.program_id(1)  # along N
 
-    # Compute C[pid_m, pid_n]
-    # Load row from A and column from B
-    offs_k = tl.arange(0, K)
+    # Compute the row/col offsets of the element(s) in C
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
 
-    # For row-major contiguous tensors:
-    # A[pid_m, k] = a_ptr + pid_m * K + k
-    # B[k, pid_n] = b_ptr + k * N + pid_n
-    a_ptrs = a_ptr + pid_m * K + offs_k
-    b_ptrs = b_ptr + offs_k * N + pid_n
+    # Initialize accumulation
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
 
-    a = tl.load(a_ptrs, mask=offs_k < K, other=0.0)
-    b = tl.load(b_ptrs, mask=offs_k < K, other=0.0)
+    # Loop over K dimension
+    for k in range(0, K):
+        # load A[:, k] and B[k, :]
+        a = tl.load(A_ptr + offs_m * K + k, mask=offs_m < M, other=0.0)
+        b = tl.load(B_ptr + k * N + offs_n, mask=offs_n < N, other=0.0)
+        # outer product accumulate
+        acc += a[:, None].to(tl.float32) * b[None, :].to(tl.float32)
 
-    # Compute dot product with float32 accumulation for better precision
-    acc = tl.sum(a.to(tl.float32) * b.to(tl.float32)).to(a.dtype)
+    # Scale and write back
+    c_ptrs = C_ptr + offs_m[:, None] * N + offs_n[None, :]
 
-    # Write result: C[pid_m, pid_n] = c_ptr + pid_m * N + pid_n
-    c_ptr_offset = c_ptr + pid_m * N + pid_n
-    tl.store(c_ptr_offset, acc)
+    # Compute final result in fp32, then convert to output dtype
+    c_old = tl.load(
+        c_ptrs, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N), other=0.0
+    )
+    c_new = (alpha * acc + beta * c_old.to(tl.float32)).to(c_old.dtype)
+    tl.store(c_ptrs, c_new, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))
 
 
 def matmul_naive(
@@ -66,25 +72,21 @@ def matmul_naive(
     assert b.is_contiguous(), "Matrix B must be contiguous"
 
     M, K = a.shape
-    K2, N = b.shape
+    _, N = b.shape
+    alpha = 1.0
+    beta = 0.0
 
-    c = torch.empty((M, N), device=a.device, dtype=a.dtype)
+    c_out = torch.zeros((M, N), device=a.device, dtype=a.dtype)
+    BLOCK_M: tl.constexpr = 32  # type: ignore
+    BLOCK_N: tl.constexpr = 32  # type: ignore
 
-    grid: Callable[[Any], tuple[int, int]] = lambda META: (M, N)
+    grid = (triton.cdiv(M, BLOCK_M), triton.cdiv(N, BLOCK_N))  # type: ignore
 
-    kernel = matmul_kernel_naive[grid]
-
-    # Execute kernel
-    compiled = kernel(
-        a,
-        b,
-        c,
-        M,  # type: ignore
-        N,  # type: ignore
-        K,  # type: ignore
+    compiled = matmul_naive_kernel[grid](
+        a, b, c_out, M, N, K, alpha, beta, BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N  # type: ignore
     )
 
-    # Print IR/PTX if requested
+    # # Print IR/PTX if requested
     if print_ir or print_ptx:
         # Get the compiled kernel
         if print_ir:
@@ -101,4 +103,4 @@ def matmul_naive(
             print(compiled.asm["ptx"])
             logger.info("=" * 80)
 
-    return c
+    return c_out

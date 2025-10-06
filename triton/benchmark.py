@@ -3,6 +3,7 @@
 from typing import Any, Callable, TypedDict
 import torch
 from loguru import logger
+import pandas as pd
 
 
 # Registry for GEMM kernels
@@ -129,13 +130,12 @@ def benchmark_gemm(
 
 def print_benchmark_results(results: BenchmarkResults) -> None:
     """Pretty print benchmark results."""
-    logger.info("=" * 60)
     logger.info(f"🚀 Backend: {results['backend']}")
     logger.info(
         f"📊 Matrix dimensions: ({results['M']}, {results['K']}) @ ({results['K']}, {results['N']}) = ({results['M']}, {results['N']})"
     )
     logger.info(f"🔢 Data type: {results['dtype']}")
-    logger.info("=" * 60)
+    logger.info("=" * 40)
     logger.info(f"⏱️  Average time: {results['avg_time_ms']:.4f} ms")
     logger.info(f"⚡ Min time:     {results['min_time_ms']:.4f} ms")
     logger.info(f"🐌 Max time:     {results['max_time_ms']:.4f} ms")
@@ -144,7 +144,7 @@ def print_benchmark_results(results: BenchmarkResults) -> None:
     logger.info(
         f"🧮 Arithmetic Intensity: {results['arithmetic_intensity']:.2f} FLOPs/byte"
     )
-    logger.info("=" * 60)
+    logger.info("=" * 40)
 
 
 def compare_benchmarks(
@@ -162,7 +162,7 @@ def compare_benchmarks(
         return
 
     baseline = results_list[baseline_idx]
-    logger.info("\n" + "=" * 60)
+    logger.info("=" * 60)
     logger.info(
         f"📈 Comparison (baseline: {baseline['backend']} @ {baseline['avg_time_ms']:.4f} ms)"
     )
@@ -193,6 +193,62 @@ def compare_benchmarks(
     logger.info("=" * 60)
 
 
+def print_markdown_comparison_table(
+    results_list: list[BenchmarkResults], baseline_idx: int = 0
+) -> None:
+    """
+    Print a markdown table comparing benchmark results across all kernels using pandas.
+
+    Args:
+        results_list: List of BenchmarkResults to compare
+        baseline_idx: Index of the baseline result for speedup calculation
+    """
+    if len(results_list) == 0:
+        logger.warning("No results to display")
+        return
+
+    baseline = results_list[baseline_idx]
+
+    # Prepare data for dataframe
+    data = []
+    for i, result in enumerate(results_list):
+        if i == baseline_idx:
+            speedup = 1.0
+            speedup_str = "1.00x 🎯"
+            improvement = 0.0
+        else:
+            speedup = baseline["avg_time_ms"] / result["avg_time_ms"]
+            if speedup > 1:
+                speedup_str = f"{speedup:.2f}x 🏆"
+            elif speedup < 1:
+                speedup_str = f"{speedup:.2f}x 🐢"
+            else:
+                speedup_str = f"{speedup:.2f}x 🤝"
+            improvement = (
+                (result["tflops"] - baseline["tflops"]) / baseline["tflops"] * 100
+            )
+
+        data.append(
+            {
+                "Backend": result["backend"],
+                "Avg Time (ms)": f"{result['avg_time_ms']:.4f}",
+                "TFLOPS": f"{result['tflops']:.2f}",
+                "Bandwidth (GB/s)": f"{result['bandwidth_gbps']:.2f}",
+                "Speedup": speedup_str,
+                "TFLOPS Δ": f"{improvement:+.1f}%" if i != baseline_idx else "-",
+            }
+        )
+
+    # Create dataframe and print as markdown
+    df = pd.DataFrame(data)
+    logger.info("## 📊 Benchmark Comparison\n")
+    logger.info("\n" + df.to_markdown(index=False))
+    logger.info(
+        f"**Matrix Dimensions:** ({results_list[0]['M']}, {results_list[0]['K']}) @ ({results_list[0]['K']}, {results_list[0]['N']}) = ({results_list[0]['M']}, {results_list[0]['N']})"
+    )
+    logger.info(f"**Data Type:** {results_list[0]['dtype']}")
+
+
 def register_kernel(name: str):
     """
     Decorator to register a GEMM kernel for benchmarking.
@@ -202,9 +258,11 @@ def register_kernel(name: str):
         def matmul_naive(a, b):
             return c
     """
+
     def decorator(fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]):
         GEMM_KERNELS[name] = fn
         return fn
+
     return decorator
 
 
@@ -217,9 +275,11 @@ if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).parent))
 
     from naive import matmul_naive
+    from coalesced import matmul_coalesced
 
     # Register kernels
     GEMM_KERNELS["triton_naive"] = matmul_naive
+    GEMM_KERNELS["triton_coalesced"] = matmul_coalesced
     GEMM_KERNELS["torch"] = torch.matmul
 
     logger.info("🎯 Running GEMM benchmarks...")
@@ -232,7 +292,7 @@ if __name__ == "__main__":
 
     # Test multiple sizes
     test_sizes = [
-        (512, 512, 512),
+        (1024, 1024, 1024),
     ]
 
     for M, N, K in test_sizes:
@@ -255,7 +315,9 @@ if __name__ == "__main__":
 
         # Compare results (using torch as baseline)
         torch_idx = next(
-            (i for i, r in enumerate(all_results) if r["backend"] == "torch"),
-            0
+            (i for i, r in enumerate(all_results) if r["backend"] == "torch"), 0
         )
         compare_benchmarks(all_results, baseline_idx=torch_idx)
+
+        # Print markdown comparison table
+        print_markdown_comparison_table(all_results, baseline_idx=torch_idx)

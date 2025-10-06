@@ -3,13 +3,13 @@ import torch
 import sys
 from pathlib import Path
 
-# Add parent directory to path to import naive module
+# Add parent directory to path to import coalesced module
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from naive import matmul_naive
+from coalesced import matmul_coalesced
 
 
-class TestMatmulNaive:
-    """Test suite for naive Triton matrix multiplication kernel."""
+class TestMatmulCoalesced:
+    """Test suite for coalesced Triton matrix multiplication kernel."""
 
     @pytest.fixture(params=["float32", "float16"])
     def dtype(self, request):
@@ -31,7 +31,7 @@ class TestMatmulNaive:
         a = torch.randn((M, K), device=device, dtype=dtype)
         b = torch.randn((K, N), device=device, dtype=dtype)
 
-        c_triton = matmul_naive(a, b)
+        c_triton = matmul_coalesced(a, b)
         c_torch = torch.matmul(a, b)
 
         # Use appropriate tolerance based on dtype and accumulation errors
@@ -60,7 +60,7 @@ class TestMatmulNaive:
             a = torch.randn((M, K), device=device, dtype=dtype)
             b = torch.randn((K, N), device=device, dtype=dtype)
 
-            c_triton = matmul_naive(a, b)
+            c_triton = matmul_coalesced(a, b)
             c_torch = torch.matmul(a, b)
 
             assert torch.allclose(
@@ -75,7 +75,7 @@ class TestMatmulNaive:
         a = torch.randn((M, K), device=device, dtype=dtype)
         b = torch.randn((K, N), device=device, dtype=dtype)
 
-        c_triton = matmul_naive(a, b)
+        c_triton = matmul_coalesced(a, b)
         c_torch = torch.matmul(a, b)
 
         rtol = 1e-2 if dtype == torch.float16 else 1e-4
@@ -95,7 +95,7 @@ class TestMatmulNaive:
         a = torch.randn((M, K), device=device, dtype=dtype)
         b = torch.randn((K, N), device=device, dtype=dtype)
 
-        c_triton = matmul_naive(a, b)
+        c_triton = matmul_coalesced(a, b)
         c_torch = torch.matmul(a, b)
 
         assert torch.allclose(
@@ -111,7 +111,7 @@ class TestMatmulNaive:
         identity = torch.eye(N, device=device, dtype=dtype)
 
         # A @ I = A
-        c_triton = matmul_naive(a, identity)
+        c_triton = matmul_coalesced(a, identity)
 
         rtol = 1e-2 if dtype == torch.float16 else 1e-4
         atol = 1e-3 if dtype == torch.float16 else 1e-5
@@ -128,7 +128,7 @@ class TestMatmulNaive:
         a = torch.randn((M, K), device=device, dtype=dtype)
         zeros = torch.zeros((K, N), device=device, dtype=dtype)
 
-        c_triton = matmul_naive(a, zeros)
+        c_triton = matmul_coalesced(a, zeros)
         expected = torch.zeros((M, N), device=device, dtype=dtype)
 
         assert torch.allclose(
@@ -141,7 +141,7 @@ class TestMatmulNaive:
         a = torch.ones((M, K), device=device, dtype=dtype)
         b = torch.ones((K, N), device=device, dtype=dtype)
 
-        c_triton = matmul_naive(a, b)
+        c_triton = matmul_coalesced(a, b)
         # Result should be all K's
         expected = torch.full((M, N), float(K), device=device, dtype=dtype)
 
@@ -160,7 +160,7 @@ class TestMatmulNaive:
         b = torch.randn((16, 32), device=device, dtype=dtype)  # Incompatible: 8 != 16
 
         with pytest.raises(AssertionError):
-            matmul_naive(a, b)
+            matmul_coalesced(a, b)
 
     def test_output_shape(self, device, dtype):
         """Test that output has correct shape."""
@@ -170,7 +170,7 @@ class TestMatmulNaive:
         a = torch.randn((M, K), device=device, dtype=dtype)
         b = torch.randn((K, N), device=device, dtype=dtype)
 
-        c = matmul_naive(a, b)
+        c = matmul_coalesced(a, b)
 
         assert c.shape == (M, N), f"Expected shape ({M}, {N}), got {c.shape}"
         assert c.dtype == dtype, f"Expected dtype {dtype}, got {c.dtype}"
@@ -187,7 +187,7 @@ class TestMatmulNaive:
         a = torch.randn((M, K), device=device, dtype=dtype) * 1e3
         b = torch.randn((K, N), device=device, dtype=dtype) * 1e-3
 
-        c_triton = matmul_naive(a, b)
+        c_triton = matmul_coalesced(a, b)
         c_torch = torch.matmul(a, b)
 
         # More relaxed tolerance for this test
