@@ -1,8 +1,25 @@
-"""Benchmark CUDA GEMM kernels against PyTorch with visualization."""
+"""Benchmark CUDA GEMM kernels against PyTorch with visualization.
+
+Usage:
+    # Run all kernels (default)
+    python benchmark.py
+
+    # Run specific kernels
+    python benchmark.py -k pytorch -k naive
+    python benchmark.py --kernels naive --kernels global_mem_coalesce
+
+    # Run only one kernel
+    python benchmark.py -k naive
+
+Available kernels:
+    - pytorch: PyTorch baseline implementation
+    - naive: Naive CUDA GEMM kernel
+    - global_mem_coalesce: CUDA GEMM with global memory coalescing
+"""
 
 import os
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 from datetime import datetime
 import webbrowser
 
@@ -21,6 +38,7 @@ from loguru import logger
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
+import click
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -116,13 +134,6 @@ def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return torch.matmul(a, b)
 
 
-# Create TorchScript compiled version
-@torch.jit.script
-def torch_gemm_scripted(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """TorchScript compiled PyTorch implementation."""
-    return torch.matmul(a, b)
-
-
 def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100):
     """Benchmark a GEMM kernel function."""
     # Warmup
@@ -199,7 +210,6 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
     kernels = results_df["kernel"].unique()
     colors = {
         "PyTorch": "#636EFA",
-        "PyTorch JIT": "#AB63FA",
         "CUDA Naive": "#EF553B",
         "CUDA Coalesced": "#00CC96",
     }
@@ -295,7 +305,7 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         line_color="red",
         line_width=2,
         annotation_text=f"RTX 4090 Peak: {RTX_4090_PEAK_TFLOPS} TFLOPS",
-        annotation_position="right",
+        annotation_position="left",
         row=1,  # type: ignore
         col=1,  # type: ignore
     )
@@ -331,7 +341,7 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         title_font=dict(size=20),
         template="plotly_white",
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1),
     )
 
     # Save interactive HTML
@@ -563,8 +573,6 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
     for _, row in results_df.iterrows():
         if row["kernel"] == "PyTorch":
             kernel_class = "pytorch"
-        elif row["kernel"] == "PyTorch JIT":
-            kernel_class = "pytorch-jit"
         elif "Naive" in row["kernel"]:
             kernel_class = "naive"
         else:
@@ -607,12 +615,14 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
     logger.success(f"✅ Saved HTML report to {report_file}")
 
 
-if __name__ == "__main__":
+def run_benchmarks(kernels_to_run: List[str]):
+    """Run benchmarks for specified kernels."""
     # Enable TF32 for PyTorch
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
     logger.info("🎯 Running GEMM benchmarks...\n")
+    logger.info(f"📋 Kernels selected: {', '.join(kernels_to_run)}\n")
 
     # Get GPU memory info
     if torch.cuda.is_available():
@@ -624,10 +634,8 @@ if __name__ == "__main__":
     # Each float32 matrix of size NxN takes 4N^2 bytes
     # For GEMM we need 3 matrices (A, B, C) = 12N^2 bytes
     test_sizes = [
-        8,
-        16,
-        32,
         64,
+        96,
         128,
         256,
         512,
@@ -672,11 +680,18 @@ if __name__ == "__main__":
             else:
                 raise
 
+        # All available kernels
+        all_kernels = [
+            ("pytorch", "PyTorch", torch_gemm, "🔵"),
+            ("naive", "CUDA Naive", cuda_naive_gemm, "🔴"),
+            ("global_mem_coalesce", "CUDA Coalesced", cuda_coalesced_gemm, "🟢"),
+        ]
+
+        # Filter kernels based on user selection
         kernels = [
-            ("PyTorch", torch_gemm, "🔵"),
-            ("PyTorch JIT", torch_gemm_scripted, "🟣"),
-            ("CUDA Naive", cuda_naive_gemm, "🔴"),
-            ("CUDA Coalesced", cuda_coalesced_gemm, "🟢"),
+            (display_name, kernel_fn, emoji)
+            for kernel_id, display_name, kernel_fn, emoji in all_kernels
+            if kernel_id in kernels_to_run
         ]
 
         size_results = {}
@@ -730,7 +745,8 @@ if __name__ == "__main__":
         logger.info("📊 Comparison (baseline: PyTorch)")
         logger.info(f"{'─'*80}")
 
-        for kernel_name in ["PyTorch", "PyTorch JIT", "CUDA Naive", "CUDA Coalesced"]:
+        # Iterate over kernels that were actually run
+        for kernel_name in size_results.keys():
             if kernel_name not in size_results:
                 logger.warning(f"{kernel_name:20s}: ❌ Failed (OOM)")
                 continue
@@ -791,3 +807,39 @@ if __name__ == "__main__":
     logger.info(f"   • HTML Report: {report_path}")
     logger.info(f"   • Interactive Charts: {output_dir / 'benchmark_results.html'}")
     logger.info(f"   • CSV Data: {output_dir / 'results.csv'}")
+
+
+@click.command()
+@click.option(
+    "--kernels",
+    "-k",
+    multiple=True,
+    type=click.Choice(
+        ["pytorch", "naive", "global_mem_coalesce"], case_sensitive=False
+    ),
+    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce",
+)
+def main(kernels):
+    """Benchmark CUDA GEMM kernels against PyTorch.
+
+    Examples:
+        # Run all kernels (default)
+        python benchmark.py
+
+        # Run only PyTorch and naive kernels
+        python benchmark.py -k pytorch -k naive
+
+        # Run only coalesced kernel
+        python benchmark.py -k global_mem_coalesce
+    """
+    # If no kernels specified, run all
+    if not kernels:
+        kernels_to_run = ["pytorch", "naive", "global_mem_coalesce"]
+    else:
+        kernels_to_run = list(kernels)
+
+    run_benchmarks(kernels_to_run)
+
+
+if __name__ == "__main__":
+    main()
