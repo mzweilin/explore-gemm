@@ -99,7 +99,7 @@ def cuda_naive_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for naive CUDA GEMM kernel."""
     # Create output tensor on CUDA device
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_naive(a, b, c, 1.0, 0.0)
+    cuda_kernels.sgemm_naive(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
@@ -107,7 +107,7 @@ def cuda_coalesced_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for coalesced global memory CUDA GEMM kernel."""
     # Create output tensor on CUDA device
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_global_mem_coalesce(a, b, c, 1.0, 0.0)
+    cuda_kernels.sgemm_global_mem_coalesce(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
@@ -283,8 +283,8 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         line_dash="dash",
         line_color="gray",
         annotation_text="PyTorch Baseline",
-        row=2,
-        col=2,
+        row=2,  # type: ignore
+        col=2,  # type: ignore
     )
 
     # Add RTX 4090 theoretical peak lines using add_shape for subplots
@@ -296,8 +296,8 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         line_width=2,
         annotation_text=f"RTX 4090 Peak: {RTX_4090_PEAK_TFLOPS} TFLOPS",
         annotation_position="right",
-        row=1,
-        col=1,
+        row=1,  # type: ignore
+        col=1,  # type: ignore
     )
 
     # Bandwidth peak line (row 1, col 2)
@@ -308,8 +308,8 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         line_width=2,
         annotation_text=f"RTX 4090 Peak: {RTX_4090_PEAK_BANDWIDTH_GBPS} GB/s",
         annotation_position="right",
-        row=1,
-        col=2,
+        row=1,  # type: ignore
+        col=2,  # type: ignore
     )
 
     # Update axes
