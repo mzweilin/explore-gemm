@@ -11,8 +11,9 @@ TEST_CASE("SGEMM Global Memory Coalescing - Basic functionality", "[sgemm_coales
         const int M = 32, K = 32, N = 32;
         auto A = torch::rand({M, K}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
         auto B = torch::rand({K, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
+        auto C = torch::zeros({M, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
 
-        auto C = sgemm_global_mem_coalesce(A, B, 1.0f, 0.0f);
+        sgemm_global_mem_coalesce(A, B, C, 1.0f, 0.0f);
 
         REQUIRE(C.size(0) == M);
         REQUIRE(C.size(1) == N);
@@ -30,8 +31,9 @@ TEST_CASE("SGEMM Global Memory Coalescing - Basic functionality", "[sgemm_coales
         const int M = 64, K = 48, N = 32;
         auto A = torch::rand({M, K}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
         auto B = torch::rand({K, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
+        auto C = torch::zeros({M, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
 
-        auto C = sgemm_global_mem_coalesce(A, B, 1.0f, 0.0f);
+        sgemm_global_mem_coalesce(A, B, C, 1.0f, 0.0f);
 
         REQUIRE(C.size(0) == M);
         REQUIRE(C.size(1) == N);
@@ -52,8 +54,9 @@ TEST_CASE("SGEMM Global Memory Coalescing - Basic functionality", "[sgemm_coales
         auto A = torch::rand({M, K}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
         auto B = torch::rand({K, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
         auto C_init = torch::rand({M, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
+        auto C = C_init.clone();
 
-        auto C = sgemm_global_mem_coalesce(A, B, alpha, beta, C_init);
+        sgemm_global_mem_coalesce(A, B, C, alpha, beta);
 
         // Expected: C = alpha * (A @ B) + beta * C_init
         auto expected = alpha * torch::matmul(A, B) + beta * C_init;
@@ -67,8 +70,9 @@ TEST_CASE("SGEMM Global Memory Coalescing - Basic functionality", "[sgemm_coales
         const int M = 512, K = 512, N = 512;
         auto A = torch::rand({M, K}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
         auto B = torch::rand({K, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
+        auto C = torch::zeros({M, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
 
-        auto C = sgemm_global_mem_coalesce(A, B, 1.0f, 0.0f);
+        sgemm_global_mem_coalesce(A, B, C, 1.0f, 0.0f);
 
         REQUIRE(C.size(0) == M);
         REQUIRE(C.size(1) == N);
@@ -85,8 +89,9 @@ TEST_CASE("SGEMM Global Memory Coalescing - Basic functionality", "[sgemm_coales
         const int M = 33, K = 47, N = 29;
         auto A = torch::rand({M, K}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
         auto B = torch::rand({K, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
+        auto C = torch::zeros({M, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
 
-        auto C = sgemm_global_mem_coalesce(A, B, 1.0f, 0.0f);
+        sgemm_global_mem_coalesce(A, B, C, 1.0f, 0.0f);
 
         REQUIRE(C.size(0) == M);
         REQUIRE(C.size(1) == N);
@@ -107,9 +112,11 @@ TEST_CASE("SGEMM Coalescing vs Naive - Correctness comparison", "[sgemm_compare]
         const int M = 128, K = 64, N = 96;
         auto A = torch::rand({M, K}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
         auto B = torch::rand({K, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
+        auto C_naive = torch::zeros({M, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
+        auto C_coalesce = torch::zeros({M, N}, torch::device(torch::kCUDA).dtype(torch::kFloat32));
 
-        auto C_naive = sgemm_naive(A, B, 1.0f, 0.0f);
-        auto C_coalesce = sgemm_global_mem_coalesce(A, B, 1.0f, 0.0f);
+        sgemm_naive(A, B, C_naive, 1.0f, 0.0f);
+        sgemm_global_mem_coalesce(A, B, C_coalesce, 1.0f, 0.0f);
 
         auto diff = torch::abs(C_naive - C_coalesce);
         auto max_diff = torch::max(diff).item<float>();

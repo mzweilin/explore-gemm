@@ -42,9 +42,8 @@ __global__ void sgemm_global_mem_coalesce_kernel(int num_rows_a, int num_cols_b,
     }
 }
 
-torch::Tensor sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                                        float alpha, float beta,
-                                        const torch::Tensor &matrix_c)
+void sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                               torch::Tensor &output_matrix, float alpha, float beta)
 {
     // Validate inputs
     TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
@@ -60,16 +59,9 @@ torch::Tensor sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const tor
 
     TORCH_CHECK(matrix_b.size(0) == num_cols_a, "Matrix dimensions must match: A is MxK, B must be KxN");
 
-    // Create or validate output tensor
-    torch::Tensor output_matrix;
-    if (matrix_c.defined()) {
-        TORCH_CHECK(matrix_c.device().is_cuda(), "Matrix C must be on CUDA device");
-        TORCH_CHECK(matrix_c.dtype() == torch::kFloat32, "Matrix C must be float32");
-        TORCH_CHECK(matrix_c.size(0) == num_rows_a && matrix_c.size(1) == num_cols_b, "Matrix C must be MxN");
-        output_matrix = matrix_c.clone();
-    } else {
-        output_matrix = torch::zeros({num_rows_a, num_cols_b}, matrix_a.options());
-    }
+    TORCH_CHECK(output_matrix.device().is_cuda(), "Matrix C must be on CUDA device");
+    TORCH_CHECK(output_matrix.dtype() == torch::kFloat32, "Matrix C must be float32");
+    TORCH_CHECK(output_matrix.size(0) == num_rows_a && output_matrix.size(1) == num_cols_b, "Matrix C must be MxN");
 
     // Get raw device pointers
     const float *d_matrix_a = matrix_a.data_ptr<float>();
@@ -86,6 +78,4 @@ torch::Tensor sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const tor
     sgemm_global_mem_coalesce_kernel<block_size><<<grid_dim, block_dim>>>(
         num_rows_a, num_cols_b, num_cols_a,
         alpha, d_matrix_a, d_matrix_b, beta, d_output_matrix);
-
-    return output_matrix;
 }
