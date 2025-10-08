@@ -60,10 +60,14 @@ target_link_libraries(test_gemm_naive "${TORCH_LIBRARIES}")
 add_executable(test_gemm_coalesce ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_coalesce.cpp ${gpu_source_files})
 target_link_libraries(test_gemm_coalesce "${TORCH_LIBRARIES}")
 
+add_executable(test_gemm_shared_mem ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_shared_mem.cpp ${gpu_source_files})
+target_link_libraries(test_gemm_shared_mem "${TORCH_LIBRARIES}")
+
 enable_testing()
 
 add_test(NAME test_gemm_naive COMMAND test_gemm_naive)
 add_test(NAME test_gemm_coalesce COMMAND test_gemm_coalesce)
+add_test(NAME test_gemm_shared_mem COMMAND test_gemm_shared_mem)
 
 # NOTES
 # Build with: cmake -B build

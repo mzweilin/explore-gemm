@@ -21,8 +21,8 @@ This kernel uses 1D thread blocks with coalesced memory access pattern.
 
 template <const uint block_size>
 __global__ void sgemm_global_mem_coalesce_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
-                                                 float alpha, const float *matrix_a,
-                                                 const float *matrix_b, float beta, float *matrix_c)
+                                                 float alpha, const float* matrix_a,
+                                                 const float* matrix_b, float beta, float* matrix_c)
 {
     // Map 1D thread ID to 2D output position for coalesced memory access
     const int output_row = blockIdx.x * block_size + (threadIdx.x / block_size);
@@ -35,15 +35,15 @@ __global__ void sgemm_global_mem_coalesce_kernel(int num_rows_a, int num_cols_b,
         for (int k_idx = 0; k_idx < num_cols_a; ++k_idx)
         {
             accumulator += matrix_a[output_row * num_cols_a + k_idx] *
-                          matrix_b[k_idx * num_cols_b + output_col];
+                matrix_b[k_idx * num_cols_b + output_col];
         }
         const int output_idx = output_row * num_cols_b + output_col;
         matrix_c[output_idx] = alpha * accumulator + beta * matrix_c[output_idx];
     }
 }
 
-void sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                               torch::Tensor &output_matrix, float alpha, float beta)
+void sgemm_global_mem_coalesce(const torch::Tensor& matrix_a, const torch::Tensor& matrix_b,
+                               torch::Tensor& output_matrix, float alpha, float beta)
 {
     // Validate inputs
     TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
@@ -64,9 +64,9 @@ void sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const torch::Tenso
     TORCH_CHECK(output_matrix.size(0) == num_rows_a && output_matrix.size(1) == num_cols_b, "Matrix C must be MxN");
 
     // Get raw device pointers
-    const float *d_matrix_a = matrix_a.data_ptr<float>();
-    const float *d_matrix_b = matrix_b.data_ptr<float>();
-    float *d_output_matrix = output_matrix.data_ptr<float>();
+    const float* d_matrix_a = matrix_a.data_ptr<float>();
+    const float* d_matrix_b = matrix_b.data_ptr<float>();
+    float* d_output_matrix = output_matrix.data_ptr<float>();
 
     // Configure kernel launch: 1D blocks with block_size^2 threads (32x32 = 1024 threads per block)
     constexpr uint block_size = 32;

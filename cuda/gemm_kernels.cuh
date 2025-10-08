@@ -8,3 +8,7 @@ void sgemm_naive(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
 // SGEMM with global memory coalescing
 void sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with shared memory tiling
+void sgemm_shared_mem(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                      torch::Tensor &output_matrix, float alpha, float beta);

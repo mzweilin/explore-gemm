@@ -7,6 +7,9 @@ TEST_CASE("SGEMM Naive - Basic functionality", "[sgemm_naive]") {
     // Check if CUDA is available
     REQUIRE(torch::cuda::is_available());
 
+    // Set seed for deterministic tests
+    torch::manual_seed(42);
+
     SECTION("Small square matrices") {
         const int M = 32, K = 32, N = 32;
         auto A = torch::rand({M, K}, torch::device(torch::kCUDA).dtype(torch::kFloat32));

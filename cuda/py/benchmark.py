@@ -6,7 +6,7 @@ Usage:
 
     # Run specific kernels
     python benchmark.py -k pytorch -k naive
-    python benchmark.py --kernels naive --kernels global_mem_coalesce
+    python benchmark.py --kernels naive --kernels global_mem_coalesce --kernels shared_mem
 
     # Run only one kernel
     python benchmark.py -k naive
@@ -15,6 +15,7 @@ Available kernels:
     - pytorch: PyTorch baseline implementation
     - naive: Naive CUDA GEMM kernel
     - global_mem_coalesce: CUDA GEMM with global memory coalescing
+    - shared_mem: CUDA GEMM with shared memory tiling
 """
 
 import os
@@ -72,19 +73,22 @@ def create_cuda_extension():
     # Load all CUDA source files
     naive_cu = file_dir / "01_naive.cu"
     coalesce_cu = file_dir / "02_kernel_global_mem_coalesce.cu"
+    shared_mem_cu = file_dir / "03_kernel_shared_mem.cu"
     header_file = file_dir / "gemm_kernels.cuh"
 
     logger.info("📂 Loading CUDA sources:")
     logger.info(f"   • Naive: {naive_cu}")
     logger.info(f"   • Coalesced: {coalesce_cu}")
+    logger.info(f"   • Shared Memory: {shared_mem_cu}")
     logger.info(f"   • Header: {header_file}")
 
     # Read all source files
     naive_code, _ = get_cuda_code(str(naive_cu), str(header_file))
-    coalesce_code, header_code = get_cuda_code(str(coalesce_cu), str(header_file))
+    coalesce_code, _ = get_cuda_code(str(coalesce_cu), str(header_file))
+    shared_mem_code, header_code = get_cuda_code(str(shared_mem_cu), str(header_file))
 
     # Combine CUDA sources
-    combined_cuda_code = naive_code + "\n" + coalesce_code
+    combined_cuda_code = naive_code + "\n" + coalesce_code + "\n" + shared_mem_code
 
     # Create build directory
     build_dir = file_dir / "build" / "gemm_extension"
@@ -97,7 +101,7 @@ def create_cuda_extension():
         name="gemm_cuda_extension",
         cpp_sources=header_code,
         cuda_sources=combined_cuda_code,
-        functions=["sgemm_naive", "sgemm_global_mem_coalesce"],
+        functions=["sgemm_naive", "sgemm_global_mem_coalesce", "sgemm_shared_mem"],
         with_cuda=True,
         verbose=True,
         extra_cuda_cflags=["-O3"],
@@ -126,6 +130,14 @@ def cuda_coalesced_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     # Create output tensor on CUDA device
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_global_mem_coalesce(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def cuda_shared_mem_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for shared memory CUDA GEMM kernel."""
+    # Create output tensor on CUDA device
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_shared_mem(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
@@ -212,6 +224,7 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         "PyTorch": "#636EFA",
         "CUDA Naive": "#EF553B",
         "CUDA Coalesced": "#00CC96",
+        "CUDA Shared Mem": "#AB63FA",
     }
 
     # Plot 1: TFLOPS
@@ -503,6 +516,11 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             color: #2e7d32;
         }}
 
+        .badge-shared {{
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }}
+
         .speedup {{
             font-weight: bold;
         }}
@@ -575,6 +593,8 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             kernel_class = "pytorch"
         elif "Naive" in row["kernel"]:
             kernel_class = "naive"
+        elif "Shared" in row["kernel"]:
+            kernel_class = "shared"
         else:
             kernel_class = "coalesced"
         speedup_class = (
@@ -685,6 +705,7 @@ def run_benchmarks(kernels_to_run: List[str]):
             ("pytorch", "PyTorch", torch_gemm, "🔵"),
             ("naive", "CUDA Naive", cuda_naive_gemm, "🔴"),
             ("global_mem_coalesce", "CUDA Coalesced", cuda_coalesced_gemm, "🟢"),
+            ("shared_mem", "CUDA Shared Mem", cuda_shared_mem_gemm, "🟣"),
         ]
 
         # Filter kernels based on user selection
@@ -815,9 +836,9 @@ def run_benchmarks(kernels_to_run: List[str]):
     "-k",
     multiple=True,
     type=click.Choice(
-        ["pytorch", "naive", "global_mem_coalesce"], case_sensitive=False
+        ["pytorch", "naive", "global_mem_coalesce", "shared_mem"], case_sensitive=False
     ),
-    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce",
+    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce, shared_mem",
 )
 def main(kernels):
     """Benchmark CUDA GEMM kernels against PyTorch.
@@ -831,10 +852,13 @@ def main(kernels):
 
         # Run only coalesced kernel
         python benchmark.py -k global_mem_coalesce
+
+        # Run shared memory kernel
+        python benchmark.py -k pytorch -k shared_mem
     """
     # If no kernels specified, run all
     if not kernels:
-        kernels_to_run = ["pytorch", "naive", "global_mem_coalesce"]
+        kernels_to_run = ["pytorch", "naive", "global_mem_coalesce", "shared_mem"]
     else:
         kernels_to_run = list(kernels)
 
