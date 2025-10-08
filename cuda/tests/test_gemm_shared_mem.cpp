@@ -104,11 +104,6 @@ TEST_CASE("SGEMM Shared Memory - Basic functionality", "[sgemm_shared_mem]") {
         auto diff = torch::abs(C - expected);
         auto max_diff = torch::max(diff).item<float>();
 
-        std::cout << "A: " << A << std::endl;
-        std::cout << "B: "  << B << std::endl;
-        std::cout << "C: "  << C << std::endl;
-        std::cout << "expected: "  << expected << std::endl;
-
         REQUIRE(max_diff < 1e-4f);
     }
 }

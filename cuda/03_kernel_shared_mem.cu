@@ -35,10 +35,6 @@ __global__ void sgemm_shared_mem_kernel(int num_rows_a, int num_cols_b, int num_
     const uint thread_row = threadIdx.x / BLOCKSIZE;
     const uint thread_col = threadIdx.x % BLOCKSIZE;
 
-    // Calculate global row and column indices for this thread
-    const int global_row = block_row * BLOCKSIZE + thread_row;
-    const int global_col = block_col * BLOCKSIZE + thread_col;
-
     // Move pointers to the starting position for this block
     matrix_a += block_row * BLOCKSIZE * num_cols_a;  // row=block_row, col=0
     matrix_b += block_col * BLOCKSIZE;               // row=0, col=block_col
@@ -49,23 +45,15 @@ __global__ void sgemm_shared_mem_kernel(int num_rows_a, int num_cols_b, int num_
     // Loop over all tiles along K dimension
     for (int tile_idx = 0; tile_idx < num_cols_a; tile_idx += BLOCKSIZE)
     {
-        // Load tile from matrix A into shared memory with bounds checking
+        // Load tile from matrix A into shared memory
         // threadCol is consecutive for coalesced memory access
-        if (global_row < num_rows_a && (tile_idx + thread_col) < num_cols_a) {
-            tile_a[thread_row * BLOCKSIZE + thread_col] =
-                matrix_a[thread_row * num_cols_a + thread_col];
-        } else {
-            tile_a[thread_row * BLOCKSIZE + thread_col] = 0.0f;
-        }
+        tile_a[thread_row * BLOCKSIZE + thread_col] =
+            matrix_a[thread_row * num_cols_a + thread_col];
 
-        // Load tile from matrix B into shared memory with bounds checking
+        // Load tile from matrix B into shared memory
         // threadCol is consecutive for coalesced memory access
-        if ((tile_idx + thread_row) < num_cols_a && global_col < num_cols_b) {
-            tile_b[thread_row * BLOCKSIZE + thread_col] =
-                matrix_b[thread_row * num_cols_b + thread_col];
-        } else {
-            tile_b[thread_row * BLOCKSIZE + thread_col] = 0.0f;
-        }
+        tile_b[thread_row * BLOCKSIZE + thread_col] =
+            matrix_b[thread_row * num_cols_b + thread_col];
 
         // Block threads until cache is fully populated
         __syncthreads();
@@ -85,11 +73,9 @@ __global__ void sgemm_shared_mem_kernel(int num_rows_a, int num_cols_b, int num_
         __syncthreads();
     }
 
-    // Write result to global memory with bounds checking: C = α*(A@B)+β*C
-    if (global_row < num_rows_a && global_col < num_cols_b) {
-        matrix_c[thread_row * num_cols_b + thread_col] =
-            alpha * accumulator + beta * matrix_c[thread_row * num_cols_b + thread_col];
-    }
+    // Write result to global memory: C = α*(A@B)+β*C
+    matrix_c[thread_row * num_cols_b + thread_col] =
+        alpha * accumulator + beta * matrix_c[thread_row * num_cols_b + thread_col];
 }
 
 void sgemm_shared_mem(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
