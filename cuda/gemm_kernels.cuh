@@ -12,3 +12,7 @@ void sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const torch::Tenso
 // SGEMM with shared memory tiling
 void sgemm_shared_mem(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                       torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with 1D block tiling
+void sgemm_blocktiling_1d(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                          torch::Tensor &output_matrix, float alpha, float beta);
