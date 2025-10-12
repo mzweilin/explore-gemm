@@ -37,8 +37,6 @@ __global__ void sgemm_blocktiling_2d_kernel(int num_rows_a, int num_cols_b, int 
     const uint block_col = blockIdx.y;
 
     // Shared memory tiles for A and B
-    // tile_a: BM x BK (block tile from matrix A)
-    // tile_b: BK x BN (block tile from matrix B)
     __shared__ float tile_a[BM * BK];
     __shared__ float tile_b[BK * BN];
 
@@ -72,40 +70,32 @@ __global__ void sgemm_blocktiling_2d_kernel(int num_rows_a, int num_cols_b, int 
     for (uint block_k_idx = 0; block_k_idx < num_cols_a; block_k_idx += BK) {
         // ==================== LOAD TILES INTO SHARED MEMORY ====================
 
-        // Load tile from matrix A into shared memory with bounds checking
+        // Load tile from matrix A into shared memory
         // Layout: tile_a is BM x BK (64 x 8 = 512 elements)
         // With 64 threads, each thread loads 512/64 = 8 elements
+        #pragma unroll
         for (uint load_offset = 0; load_offset < BM * BK; load_offset += num_threads) {
             uint load_idx = threadIdx.x + load_offset;
-            if (load_idx < BM * BK) {
-                uint a_row = load_idx / BK;
-                uint a_col = load_idx % BK;
-                uint global_row_a = block_row * BM + a_row;
-                uint global_col_a = block_k_idx + a_col;
-                if (global_row_a < num_rows_a && global_col_a < num_cols_a) {
-                    tile_a[load_idx] = matrix_a[a_row * num_cols_a + a_col];
-                } else {
-                    tile_a[load_idx] = 0.0f;
-                }
-            }
+            uint a_row = load_idx / BK;
+            uint a_col = load_idx % BK;
+            uint global_row_a = block_row * BM + a_row;
+            uint global_col_a = block_k_idx + a_col;
+            tile_a[load_idx] = (global_row_a < num_rows_a && global_col_a < num_cols_a)
+                ? matrix_a[a_row * num_cols_a + a_col] : 0.0f;
         }
 
-        // Load tile from matrix B into shared memory with bounds checking
+        // Load tile from matrix B into shared memory
         // Layout: tile_b is BK x BN (8 x 64 = 512 elements)
         // With 64 threads, each thread loads 512/64 = 8 elements
+        #pragma unroll
         for (uint load_offset = 0; load_offset < BK * BN; load_offset += num_threads) {
             uint load_idx = threadIdx.x + load_offset;
-            if (load_idx < BK * BN) {
-                uint b_row = load_idx / BN;
-                uint b_col = load_idx % BN;
-                uint global_row_b = block_k_idx + b_row;
-                uint global_col_b = block_col * BN + b_col;
-                if (global_row_b < num_cols_a && global_col_b < num_cols_b) {
-                    tile_b[load_idx] = matrix_b[b_row * num_cols_b + b_col];
-                } else {
-                    tile_b[load_idx] = 0.0f;
-                }
-            }
+            uint b_row = load_idx / BN;
+            uint b_col = load_idx % BN;
+            uint global_row_b = block_k_idx + b_row;
+            uint global_col_b = block_col * BN + b_col;
+            tile_b[load_idx] = (global_row_b < num_cols_a && global_col_b < num_cols_b)
+                ? matrix_b[b_row * num_cols_b + b_col] : 0.0f;
         }
 
         __syncthreads();
