@@ -126,7 +126,7 @@ void sgemm_blocktiling_1d(const torch::Tensor &matrix_a, const torch::Tensor &ma
     // Get raw device pointers
     const float *d_matrix_a = matrix_a.data_ptr<float>();
     const float *d_matrix_b = matrix_b.data_ptr<float>();
-    float *d_output_matrix = output_matrix.data_ptr<float>();
+    auto *d_output_matrix = output_matrix.data_ptr<float>();
 
     // Template parameters for kernel
     constexpr int BM = 64;

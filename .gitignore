@@ -211,3 +211,4 @@ __marimo__/
 /.idea/
 /cuda/py/benchmark_results/
 /cuda/py/*.ncu-rep
+*.ncu-rep

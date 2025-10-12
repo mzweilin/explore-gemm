@@ -51,7 +51,7 @@ __global__ void sgemm_shared_mem_kernel(int num_rows_a, int num_cols_b, int num_
     for (int tile_idx = 0; tile_idx < num_cols_a; tile_idx += BLOCKSIZE)
     {
         // Load tile from matrix A into shared memory with bounds checking
-        // threadCol is consecutive for coalesced memory access
+        // thread_col is consecutive for coalesced memory access
         if (global_row < num_rows_a && (tile_idx + thread_col) < num_cols_a) {
             tile_a[thread_row * BLOCKSIZE + thread_col] =
                 matrix_a[thread_row * num_cols_a + thread_col];
@@ -60,7 +60,7 @@ __global__ void sgemm_shared_mem_kernel(int num_rows_a, int num_cols_b, int num_
         }
 
         // Load tile from matrix B into shared memory with bounds checking
-        // threadCol is consecutive for coalesced memory access
+        // thread_col is consecutive for coalesced memory access
         if ((tile_idx + thread_row) < num_cols_a && global_col < num_cols_b) {
             tile_b[thread_row * BLOCKSIZE + thread_col] =
                 matrix_b[thread_row * num_cols_b + thread_col];

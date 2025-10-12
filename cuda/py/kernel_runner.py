@@ -17,6 +17,8 @@ Available kernels:
     - naive: Naive CUDA GEMM kernel
     - global_mem_coalesce: CUDA GEMM with global memory coalescing
     - shared_mem: CUDA GEMM with shared memory tiling
+    - blocktiling_1d: CUDA GEMM with 1D block tiling
+    - blocktiling_2d: CUDA GEMM with 2D block tiling
 """
 
 import os
@@ -71,15 +73,19 @@ def create_cuda_extension():
     naive_cu = file_dir / "01_naive.cu"
     coalesce_cu = file_dir / "02_kernel_global_mem_coalesce.cu"
     shared_mem_cu = file_dir / "03_kernel_shared_mem.cu"
+    blocktiling_1d_cu = file_dir / "04_kernel_blocktiling_1d.cu"
+    blocktiling_2d_cu = file_dir / "05_kernel_blocktiling_2d.cu"
     header_file = file_dir / "gemm_kernels.cuh"
 
     # Read all source files
     naive_code, _ = get_cuda_code(str(naive_cu), str(header_file))
     coalesce_code, _ = get_cuda_code(str(coalesce_cu), str(header_file))
-    shared_mem_code, header_code = get_cuda_code(str(shared_mem_cu), str(header_file))
+    shared_mem_code, _ = get_cuda_code(str(shared_mem_cu), str(header_file))
+    blocktiling_1d_code, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file))
+    blocktiling_2d_code, header_code = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
 
     # Combine CUDA sources
-    combined_cuda_code = naive_code + "\n" + coalesce_code + "\n" + shared_mem_code
+    combined_cuda_code = naive_code + "\n" + coalesce_code + "\n" + shared_mem_code + "\n" + blocktiling_1d_code + "\n" + blocktiling_2d_code
 
     # Create build directory
     build_dir = file_dir / "build" / "gemm_extension"
@@ -90,7 +96,7 @@ def create_cuda_extension():
         name="gemm_cuda_extension",
         cpp_sources=header_code,
         cuda_sources=combined_cuda_code,
-        functions=["sgemm_naive", "sgemm_global_mem_coalesce", "sgemm_shared_mem"],
+        functions=["sgemm_naive", "sgemm_global_mem_coalesce", "sgemm_shared_mem", "sgemm_blocktiling_1d", "sgemm_blocktiling_2d"],
         with_cuda=True,
         verbose=False,
         extra_cuda_cflags=["-O3"],
@@ -127,6 +133,20 @@ def run_shared_mem_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
+def run_blocktiling_1d_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run 1D block tiling CUDA GEMM kernel."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_blocktiling_1d(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def run_blocktiling_2d_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run 2D block tiling CUDA GEMM kernel."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_blocktiling_2d(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
 def run_kernel_n_times(
     kernel_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     a: torch.Tensor,
@@ -149,7 +169,7 @@ def run_kernel_n_times(
     "-k",
     "--kernel",
     type=click.Choice(
-        ["naive", "global_mem_coalesce", "shared_mem"], case_sensitive=False
+        ["naive", "global_mem_coalesce", "shared_mem", "blocktiling_1d", "blocktiling_2d"], case_sensitive=False
     ),
     required=True,
     help="Kernel to run",
@@ -187,6 +207,8 @@ def main(kernel: str, iterations: int, size: int):
         "naive": run_naive_kernel,
         "global_mem_coalesce": run_coalesced_kernel,
         "shared_mem": run_shared_mem_kernel,
+        "blocktiling_1d": run_blocktiling_1d_kernel,
+        "blocktiling_2d": run_blocktiling_2d_kernel,
     }
 
     kernel_fn = kernel_map[kernel]
