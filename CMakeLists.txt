@@ -69,6 +69,9 @@ target_link_libraries(test_gemm_blocktiling1d "${TORCH_LIBRARIES}")
 add_executable(test_gemm_blocktiling2d ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling2d.cpp ${gpu_source_files})
 target_link_libraries(test_gemm_blocktiling2d "${TORCH_LIBRARIES}")
 
+add_executable(test_gemm_vectorize ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_vectorize.cpp ${gpu_source_files})
+target_link_libraries(test_gemm_vectorize "${TORCH_LIBRARIES}")
+
 enable_testing()
 
 add_test(NAME test_gemm_naive COMMAND test_gemm_naive)
@@ -76,6 +79,7 @@ add_test(NAME test_gemm_coalesce COMMAND test_gemm_coalesce)
 add_test(NAME test_gemm_shared_mem COMMAND test_gemm_shared_mem)
 add_test(NAME test_gemm_blocktiling1d COMMAND test_gemm_blocktiling1d)
 add_test(NAME test_gemm_blocktiling2d COMMAND test_gemm_blocktiling2d)
+add_test(NAME test_gemm_vectorize COMMAND test_gemm_vectorize)
 
 # NOTES
 # Build with: cmake -B build

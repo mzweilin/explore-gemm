@@ -20,3 +20,7 @@ void sgemm_blocktiling_1d(const torch::Tensor &matrix_a, const torch::Tensor &ma
 // SGEMM with 2D block tiling
 void sgemm_blocktiling_2d(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                           torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with vectorized memory access
+void sgemm_vectorize(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                     torch::Tensor &output_matrix, float alpha, float beta);

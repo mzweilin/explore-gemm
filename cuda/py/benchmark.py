@@ -18,6 +18,7 @@ Available kernels:
     - shared_mem: CUDA GEMM with shared memory tiling
     - blocktiling_1d: CUDA GEMM with 1D block tiling
     - blocktiling_2d: CUDA GEMM with 2D block tiling
+    - vectorize: CUDA GEMM with vectorized memory access
 """
 
 import os
@@ -78,6 +79,7 @@ def create_cuda_extension():
     shared_mem_cu = file_dir / "03_kernel_shared_mem.cu"
     blocktiling_1d_cu = file_dir / "04_kernel_blocktiling_1d.cu"
     blocktiling_2d_cu = file_dir / "05_kernel_blocktiling_2d.cu"
+    vectorize_cu = file_dir / "06_kernel_vectorize.cu"
     header_file = file_dir / "gemm_kernels.cuh"
 
     logger.info("📂 Loading CUDA sources:")
@@ -86,6 +88,7 @@ def create_cuda_extension():
     logger.info(f"   • Shared Memory: {shared_mem_cu}")
     logger.info(f"   • 1D Block Tiling: {blocktiling_1d_cu}")
     logger.info(f"   • 2D Block Tiling: {blocktiling_2d_cu}")
+    logger.info(f"   • Vectorize: {vectorize_cu}")
     logger.info(f"   • Header: {header_file}")
 
     # Read all source files
@@ -93,10 +96,23 @@ def create_cuda_extension():
     coalesce_code, _ = get_cuda_code(str(coalesce_cu), str(header_file))
     shared_mem_code, _ = get_cuda_code(str(shared_mem_cu), str(header_file))
     blocktiling_1d_code, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file))
-    blocktiling_2d_code, header_code = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
+    blocktiling_2d_code, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
+    vectorize_code, header_code = get_cuda_code(str(vectorize_cu), str(header_file))
 
     # Combine CUDA sources
-    combined_cuda_code = naive_code + "\n" + coalesce_code + "\n" + shared_mem_code + "\n" + blocktiling_1d_code + "\n" + blocktiling_2d_code
+    combined_cuda_code = (
+        naive_code
+        + "\n"
+        + coalesce_code
+        + "\n"
+        + shared_mem_code
+        + "\n"
+        + blocktiling_1d_code
+        + "\n"
+        + blocktiling_2d_code
+        + "\n"
+        + vectorize_code
+    )
 
     # Create build directory
     build_dir = file_dir / "build" / "gemm_extension"
@@ -109,7 +125,14 @@ def create_cuda_extension():
         name="gemm_cuda_extension",
         cpp_sources=header_code,
         cuda_sources=combined_cuda_code,
-        functions=["sgemm_naive", "sgemm_global_mem_coalesce", "sgemm_shared_mem", "sgemm_blocktiling_1d", "sgemm_blocktiling_2d"],
+        functions=[
+            "sgemm_naive",
+            "sgemm_global_mem_coalesce",
+            "sgemm_shared_mem",
+            "sgemm_blocktiling_1d",
+            "sgemm_blocktiling_2d",
+            "sgemm_vectorize",
+        ],
         with_cuda=True,
         verbose=True,
         extra_cuda_cflags=["-O3"],
@@ -162,6 +185,14 @@ def cuda_blocktiling_2d_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     # Create output tensor on CUDA device
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_blocktiling_2d(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for vectorized CUDA GEMM kernel."""
+    # Create output tensor on CUDA device
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_vectorize(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
@@ -251,6 +282,7 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         "CUDA Shared Mem": "#AB63FA",
         "CUDA 1D Block Tiling": "#FFA15A",
         "CUDA 2D Block Tiling": "#19D3F3",
+        "CUDA Vectorize": "#FF6692",
     }
 
     # Plot 1: TFLOPS
@@ -557,6 +589,11 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             color: #006064;
         }}
 
+        .badge-vectorize {{
+            background: #fce4ec;
+            color: #c2185b;
+        }}
+
         .speedup {{
             font-weight: bold;
         }}
@@ -635,6 +672,8 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             kernel_class = "blocktiling2d"
         elif "Block" in row["kernel"] or "1D" in row["kernel"]:
             kernel_class = "blocktiling"
+        elif "Vectorize" in row["kernel"]:
+            kernel_class = "vectorize"
         else:
             kernel_class = "coalesced"
         speedup_class = (
@@ -693,19 +732,7 @@ def run_benchmarks(kernels_to_run: List[str]):
     # Test sizes - expanded range up to memory limits
     # Each float32 matrix of size NxN takes 4N^2 bytes
     # For GEMM we need 3 matrices (A, B, C) = 12N^2 bytes
-    test_sizes = [
-        64,
-        96,
-        128,
-        256,
-        512,
-        768,
-        1024,
-        1536,
-        2048,
-        3072,
-        4096,
-    ]
+    test_sizes = [64, 96, 128, 256, 512, 768, 1024, 1536, 2048, 3072, 4096, 8192]
 
     # Store all results
     all_results = []
@@ -748,6 +775,7 @@ def run_benchmarks(kernels_to_run: List[str]):
             ("shared_mem", "CUDA Shared Mem", cuda_shared_mem_gemm, "🟣"),
             ("blocktiling_1d", "CUDA 1D Block Tiling", cuda_blocktiling_1d_gemm, "🟠"),
             ("blocktiling_2d", "CUDA 2D Block Tiling", cuda_blocktiling_2d_gemm, "🔷"),
+            ("vectorize", "CUDA Vectorize", cuda_vectorize_gemm, "💫"),
         ]
 
         # Filter kernels based on user selection
@@ -782,6 +810,12 @@ def run_benchmarks(kernels_to_run: List[str]):
                 if "out of memory" in str(e).lower():
                     logger.error(f"   ❌ Out of memory during {kernel_name} benchmark!")
                     torch.cuda.empty_cache()
+                    continue
+                elif "must be multiple of" in str(e) or "must be power of 2" in str(e):
+                    logger.warning(
+                        f"   ⚠️  Skipping {kernel_name}: incompatible matrix size ({size})"
+                    )
+                    logger.warning(f"      {str(e)}")
                     continue
                 else:
                     raise
@@ -878,9 +912,18 @@ def run_benchmarks(kernels_to_run: List[str]):
     "-k",
     multiple=True,
     type=click.Choice(
-        ["pytorch", "naive", "global_mem_coalesce", "shared_mem", "blocktiling_1d", "blocktiling_2d"], case_sensitive=False
+        [
+            "pytorch",
+            "naive",
+            "global_mem_coalesce",
+            "shared_mem",
+            "blocktiling_1d",
+            "blocktiling_2d",
+            "vectorize",
+        ],
+        case_sensitive=False,
     ),
-    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce, shared_mem, blocktiling_1d, blocktiling_2d",
+    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce, shared_mem, blocktiling_1d, blocktiling_2d, vectorize",
 )
 def main(kernels):
     """Benchmark CUDA GEMM kernels against PyTorch.
@@ -903,10 +946,21 @@ def main(kernels):
 
         # Run 2D block tiling kernel
         python benchmark.py -k pytorch -k blocktiling_2d
+
+        # Run vectorize kernel
+        python benchmark.py -k pytorch -k vectorize
     """
     # If no kernels specified, run all
     if not kernels:
-        kernels_to_run = ["pytorch", "naive", "global_mem_coalesce", "shared_mem", "blocktiling_1d", "blocktiling_2d"]
+        kernels_to_run = [
+            "pytorch",
+            "naive",
+            "global_mem_coalesce",
+            "shared_mem",
+            "blocktiling_1d",
+            "blocktiling_2d",
+            "vectorize",
+        ]
     else:
         kernels_to_run = list(kernels)
 
