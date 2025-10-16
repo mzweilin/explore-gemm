@@ -20,11 +20,12 @@ Available kernels:
     - blocktiling_1d: CUDA GEMM with 1D block tiling
     - blocktiling_2d: CUDA GEMM with 2D block tiling
     - vectorize: CUDA GEMM with vectorized memory access
-    - warptiling: CUDA GEMM with warp-level tiling (most optimized)
+    - warptiling: CUDA GEMM with warp-level tiling (most optimized FP32)
+    - tensorcore_fp16: CUDA Tensor Core with FP16 inputs
+    - tensorcore_bf16: CUDA Tensor Core with BF16 inputs
 """
 
 import os
-from pathlib import Path
 from typing import Callable
 
 import click
@@ -39,82 +40,19 @@ os.environ["LD_LIBRARY_PATH"] = (
 )
 
 import torch
-from torch.utils.cpp_extension import load_inline
 from loguru import logger
+
+# Import the shared CUDA extension loader
+from cuda_extension_loader import create_cuda_extension
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 
-def get_cuda_code(cuda_file: str, header_file: str) -> tuple[str, str]:
-    """Load CUDA source and header files, removing #include and #pragma once directives."""
-    with open(cuda_file) as f:
-        cuda_code = "".join(
-            [line for line in f.readlines() if not line.startswith("#include")]
-        )
-
-    with open(header_file) as f:
-        header_code = "".join(
-            [
-                line
-                for line in f.readlines()
-                if not line.startswith("#include")
-                and not line.startswith("#pragma once")
-            ]
-        )
-
-    return cuda_code, header_code
-
-
-def create_cuda_extension():
-    """Create PyTorch extension for CUDA GEMM kernels."""
-    file_dir = Path(__file__).parent.parent
-
-    # Load all CUDA source files
-    naive_cu = file_dir / "01_naive.cu"
-    coalesce_cu = file_dir / "02_kernel_global_mem_coalesce.cu"
-    shared_mem_cu = file_dir / "03_kernel_shared_mem.cu"
-    blocktiling_1d_cu = file_dir / "04_kernel_blocktiling_1d.cu"
-    blocktiling_2d_cu = file_dir / "05_kernel_blocktiling_2d.cu"
-    vectorize_cu = file_dir / "06_kernel_vectorize.cu"
-    warptiling_cu = file_dir / "07_kernel_warptiling.cu"
-    header_file = file_dir / "gemm_kernels.cuh"
-
-    # Read all source files
-    naive_code, _ = get_cuda_code(str(naive_cu), str(header_file))
-    coalesce_code, _ = get_cuda_code(str(coalesce_cu), str(header_file))
-    shared_mem_code, _ = get_cuda_code(str(shared_mem_cu), str(header_file))
-    blocktiling_1d_code, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file))
-    blocktiling_2d_code, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
-    vectorize_code, _ = get_cuda_code(str(vectorize_cu), str(header_file))
-    warptiling_code, header_code = get_cuda_code(str(warptiling_cu), str(header_file))
-
-    # Combine CUDA sources
-    combined_cuda_code = naive_code + "\n" + coalesce_code + "\n" + shared_mem_code + "\n" + blocktiling_1d_code + "\n" + blocktiling_2d_code + "\n" + vectorize_code + "\n" + warptiling_code
-
-    # Create build directory
-    build_dir = file_dir / "build" / "gemm_extension"
-    build_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load the extension
-    extension = load_inline(
-        name="gemm_cuda_extension",
-        cpp_sources=header_code,
-        cuda_sources=combined_cuda_code,
-        functions=["sgemm_naive", "sgemm_global_mem_coalesce", "sgemm_shared_mem", "sgemm_blocktiling_1d", "sgemm_blocktiling_2d", "sgemm_vectorize", "sgemm_warptiling_default"],
-        with_cuda=True,
-        verbose=False,
-        extra_cuda_cflags=["-O3"],
-        build_directory=str(build_dir),
-    )
-
-    return extension
-
-
-# Load CUDA kernels
+# Load CUDA kernels (with less verbose output for kernel runner)
 logger.info("🚀 Loading CUDA kernels...")
-cuda_kernels = create_cuda_extension()
+cuda_kernels = create_cuda_extension(verbose=False)
 logger.success("✅ CUDA kernels loaded successfully!")
 
 
@@ -167,6 +105,20 @@ def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
+def run_tensorcore_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run Tensor Core CUDA GEMM kernel with FP16 inputs."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def run_tensorcore_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run Tensor Core CUDA GEMM kernel with BF16 inputs."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
 def run_kernel_n_times(
     kernel_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     a: torch.Tensor,
@@ -176,7 +128,7 @@ def run_kernel_n_times(
     """Run a kernel N times for profiling."""
     logger.info(f"⚡ Running kernel {n} times...")
 
-    for i in range(n):
+    for _ in range(n):
         _ = kernel_fn(a, b)
 
     # Synchronize to ensure all kernels complete
@@ -189,7 +141,7 @@ def run_kernel_n_times(
     "-k",
     "--kernel",
     type=click.Choice(
-        ["naive", "global_mem_coalesce", "shared_mem", "blocktiling_1d", "blocktiling_2d", "vectorize", "warptiling"], case_sensitive=False
+        ["naive", "global_mem_coalesce", "shared_mem", "blocktiling_1d", "blocktiling_2d", "vectorize", "warptiling", "tensorcore_fp16", "tensorcore_bf16"], case_sensitive=False
     ),
     required=True,
     help="Kernel to run",
@@ -208,19 +160,29 @@ def run_kernel_n_times(
     default=4096,
     help="Matrix size (M=N=K, default: 4096)",
 )
-def main(kernel: str, iterations: int, size: int):
+@click.option(
+    "-d",
+    "--dtype",
+    type=click.Choice(["float32", "float16", "bfloat16"], case_sensitive=False),
+    default="float32",
+    help="Data type for input matrices (default: float32). Tensor Core kernels require float16 or bfloat16.",
+)
+def main(kernel: str, iterations: int, size: int, dtype: str):
     """Run CUDA GEMM kernels for NCU profiling.
 
     Examples:
         # Run naive kernel 100 times
         python kernel_runner.py -k naive -n 100
 
+        # Run with FP16 and Tensor Cores
+        python kernel_runner.py -k tensorcore_fp16 -n 100 -d float16
+
         # Run with custom matrix size
         python kernel_runner.py -k shared_mem -n 50 -s 2048
 
         # Profile with ncu
         ncu --set full python kernel_runner.py -k naive -n 100
-        ncu --metrics all python kernel_runner.py -k global_mem_coalesce -n 100 -s 512
+        ncu --metrics all python kernel_runner.py -k tensorcore_fp16 -n 100 -d float16
     """
     # Map kernel names to functions
     kernel_map = {
@@ -231,7 +193,25 @@ def main(kernel: str, iterations: int, size: int):
         "blocktiling_2d": run_blocktiling_2d_kernel,
         "vectorize": run_vectorize_kernel,
         "warptiling": run_warptiling_kernel,
+        "tensorcore_fp16": run_tensorcore_fp16_kernel,
+        "tensorcore_bf16": run_tensorcore_bf16_kernel,
     }
+
+    # Auto-detect required dtype for Tensor Core kernels if not specified
+    if kernel == "tensorcore_fp16" and dtype == "float32":
+        logger.warning("⚠️  tensorcore_fp16 requires float16 dtype, auto-switching to float16")
+        dtype = "float16"
+    elif kernel == "tensorcore_bf16" and dtype == "float32":
+        logger.warning("⚠️  tensorcore_bf16 requires bfloat16 dtype, auto-switching to bfloat16")
+        dtype = "bfloat16"
+
+    # Map dtype string to torch dtype
+    dtype_map = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }
+    torch_dtype = dtype_map[dtype]
 
     kernel_fn = kernel_map[kernel]
     M = N = K = size
@@ -239,14 +219,15 @@ def main(kernel: str, iterations: int, size: int):
     logger.info(f"\n{'='*60}")
     logger.info(f"🎯 Kernel: {kernel}")
     logger.info(f"📐 Matrix size: ({M}, {K}) @ ({K}, {N}) = ({M}, {N})")
+    logger.info(f"🔢 Data type: {dtype}")
     logger.info(f"🔄 Iterations: {iterations}")
     logger.info(f"🖥️  GPU: {torch.cuda.get_device_name(0)}")
     logger.info(f"{'='*60}\n")
 
-    # Create input tensors
+    # Create input tensors with specified dtype
     logger.info("💾 Allocating input tensors...")
-    a = torch.randn((M, K), device="cuda", dtype=torch.float32)
-    b = torch.randn((K, N), device="cuda", dtype=torch.float32)
+    a = torch.randn((M, K), device="cuda", dtype=torch_dtype)
+    b = torch.randn((K, N), device="cuda", dtype=torch_dtype)
     logger.success("✅ Input tensors allocated")
 
     # Run the kernel N times

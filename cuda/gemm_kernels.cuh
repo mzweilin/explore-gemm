@@ -35,3 +35,21 @@ void sgemm_warptiling(const torch::Tensor &matrix_a, const torch::Tensor &matrix
 // SGEMM warptiling with default parameters (for Python binding)
 void sgemm_warptiling_default(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                               torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM warptiling with multi-dtype support (FP32/FP16/BF16 inputs, FP32 output)
+void sgemm_warptiling_fp32(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                           torch::Tensor &output_matrix, float alpha, float beta);
+
+void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                           torch::Tensor &output_matrix, float alpha, float beta);
+
+void sgemm_warptiling_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                           torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with Tensor Cores (FP16 inputs, FP32 output)
+void sgemm_tensorcore_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                           torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with Tensor Cores (BF16 inputs, FP32 output)
+void sgemm_tensorcore_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                           torch::Tensor &output_matrix, float alpha, float beta);

@@ -1,30 +1,47 @@
 """Benchmark CUDA GEMM kernels against PyTorch with visualization.
 
 Usage:
-    # Run all kernels (default)
+    # Run all FP32 kernels (default)
     python benchmark.py
 
-    # Run specific kernels
+    # Run all FP16-compatible kernels (PyTorch, warptiling, tensorcore)
+    python benchmark.py -d float16
+
+    # Run all BF16-compatible kernels (PyTorch, warptiling, tensorcore)
+    python benchmark.py -d bfloat16
+
+    # Run specific kernels with FP16
+    python benchmark.py -d float16 -k pytorch -k tensorcore_fp16
+
+    # Run specific kernels with FP32
     python benchmark.py -k pytorch -k naive
     python benchmark.py --kernels naive --kernels global_mem_coalesce --kernels shared_mem
 
-    # Run only one kernel
-    python benchmark.py -k naive
-
 Available kernels:
+    All dtypes (FP32/FP16/BF16):
     - pytorch: PyTorch baseline implementation
+    - warptiling: CUDA GEMM with warp-level tiling (supports all dtypes)
+
+    FP32 only:
     - naive: Naive CUDA GEMM kernel
     - global_mem_coalesce: CUDA GEMM with global memory coalescing
     - shared_mem: CUDA GEMM with shared memory tiling
     - blocktiling_1d: CUDA GEMM with 1D block tiling
     - blocktiling_2d: CUDA GEMM with 2D block tiling
     - vectorize: CUDA GEMM with vectorized memory access
-    - warptiling: CUDA GEMM with warp-level tiling (most optimized)
+
+    FP16/BF16 only:
+    - tensorcore_fp16: CUDA Tensor Core with FP16 inputs (requires -d float16)
+    - tensorcore_bf16: CUDA Tensor Core with BF16 inputs (requires -d bfloat16)
+
+Note: When using -d float16 or -d bfloat16 without specifying kernels, FP32-only
+kernels are automatically filtered out. If you explicitly request FP32-only kernels
+with FP16/BF16, they will be skipped with a warning.
 """
 
 import os
 from pathlib import Path
-from typing import Tuple, List
+from typing import List
 from datetime import datetime
 import webbrowser
 
@@ -38,121 +55,23 @@ os.environ["LD_LIBRARY_PATH"] = (
 )
 
 import torch
-from torch.utils.cpp_extension import load_inline
 from loguru import logger
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import click
 
+# Import the shared CUDA extension loader
+from cuda_extension_loader import create_cuda_extension
+
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 
-def get_cuda_code(cuda_file: str, header_file: str) -> Tuple[str, str]:
-    """Load CUDA source and header files, removing #include and #pragma once directives."""
-    with open(cuda_file) as f:
-        cuda_code = "".join(
-            [line for line in f.readlines() if not line.startswith("#include")]
-        )
-
-    with open(header_file) as f:
-        header_code = "".join(
-            [
-                line
-                for line in f.readlines()
-                if not line.startswith("#include")
-                and not line.startswith("#pragma once")
-            ]
-        )
-
-    return cuda_code, header_code
-
-
-def create_cuda_extension():
-    """Create PyTorch extension for CUDA GEMM kernels."""
-    file_dir = Path(__file__).parent.parent
-
-    # Load all CUDA source files
-    naive_cu = file_dir / "01_naive.cu"
-    coalesce_cu = file_dir / "02_kernel_global_mem_coalesce.cu"
-    shared_mem_cu = file_dir / "03_kernel_shared_mem.cu"
-    blocktiling_1d_cu = file_dir / "04_kernel_blocktiling_1d.cu"
-    blocktiling_2d_cu = file_dir / "05_kernel_blocktiling_2d.cu"
-    vectorize_cu = file_dir / "06_kernel_vectorize.cu"
-    warptiling_cu = file_dir / "07_kernel_warptiling.cu"
-    header_file = file_dir / "gemm_kernels.cuh"
-
-    logger.info("📂 Loading CUDA sources:")
-    logger.info(f"   • Naive: {naive_cu}")
-    logger.info(f"   • Coalesced: {coalesce_cu}")
-    logger.info(f"   • Shared Memory: {shared_mem_cu}")
-    logger.info(f"   • 1D Block Tiling: {blocktiling_1d_cu}")
-    logger.info(f"   • 2D Block Tiling: {blocktiling_2d_cu}")
-    logger.info(f"   • Vectorize: {vectorize_cu}")
-    logger.info(f"   • Warptiling: {warptiling_cu}")
-    logger.info(f"   • Header: {header_file}")
-
-    # Read all source files
-    naive_code, _ = get_cuda_code(str(naive_cu), str(header_file))
-    coalesce_code, _ = get_cuda_code(str(coalesce_cu), str(header_file))
-    shared_mem_code, _ = get_cuda_code(str(shared_mem_cu), str(header_file))
-    blocktiling_1d_code, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file))
-    blocktiling_2d_code, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
-    vectorize_code, _ = get_cuda_code(str(vectorize_cu), str(header_file))
-    warptiling_code, header_code = get_cuda_code(str(warptiling_cu), str(header_file))
-
-    # Combine CUDA sources
-    combined_cuda_code = (
-        naive_code
-        + "\n"
-        + coalesce_code
-        + "\n"
-        + shared_mem_code
-        + "\n"
-        + blocktiling_1d_code
-        + "\n"
-        + blocktiling_2d_code
-        + "\n"
-        + vectorize_code
-        + "\n"
-        + warptiling_code
-    )
-
-    # Create build directory
-    build_dir = file_dir / "build" / "gemm_extension"
-    build_dir.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"🔨 Build directory: {build_dir}")
-
-    # Load the extension
-    extension = load_inline(
-        name="gemm_cuda_extension",
-        cpp_sources=header_code,
-        cuda_sources=combined_cuda_code,
-        functions=[
-            "sgemm_naive",
-            "sgemm_global_mem_coalesce",
-            "sgemm_shared_mem",
-            "sgemm_blocktiling_1d",
-            "sgemm_blocktiling_2d",
-            "sgemm_vectorize",
-            "sgemm_warptiling_default",
-        ],
-        with_cuda=True,
-        verbose=True,
-        extra_cuda_cflags=["-O3"],
-        build_directory=str(build_dir),
-    )
-
-    logger.success("✅ CUDA extension loaded successfully!")
-    return extension
-
-
 # Load CUDA kernels
 logger.info("🚀 Loading CUDA kernels...")
-cuda_kernels = create_cuda_extension()
+cuda_kernels = create_cuda_extension(verbose=True)
 
 
 def cuda_naive_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -204,10 +123,36 @@ def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper for warptiling CUDA GEMM kernel."""
-    # Create output tensor on CUDA device
+    """Wrapper for warptiling CUDA GEMM kernel (dtype-aware)."""
+    # Create output tensor on CUDA device (always FP32 output)
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_warptiling_default(a, b, c, 1.0, 0.0)  # type: ignore
+
+    # Dispatch to appropriate warptiling kernel based on input dtype
+    if a.dtype == torch.float32:
+        cuda_kernels.sgemm_warptiling_fp32(a, b, c, 1.0, 0.0)  # type: ignore
+    elif a.dtype == torch.float16:
+        cuda_kernels.sgemm_warptiling_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    elif a.dtype == torch.bfloat16:
+        cuda_kernels.sgemm_warptiling_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    else:
+        raise ValueError(f"Unsupported dtype: {a.dtype}")
+
+    return c
+
+
+def cuda_tensorcore_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs."""
+    # Create output tensor on CUDA device (FP32 output)
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def cuda_tensorcore_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs."""
+    # Create output tensor on CUDA device (FP32 output)
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
@@ -263,7 +208,7 @@ def calculate_metrics(M, N, K, avg_time_ms):
     return tflops, bandwidth_gbps
 
 
-def create_visualization(results_df: pd.DataFrame, output_dir: Path):
+def create_visualization(results_df: pd.DataFrame, output_dir: Path, dtype: str = "float32"):
     """Create interactive Plotly visualizations."""
     logger.info("📊 Creating visualizations...")
 
@@ -271,15 +216,18 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
     RTX_4090_PEAK_TFLOPS = 82.58  # FP32 TFLOPS
     RTX_4090_PEAK_BANDWIDTH_GBPS = 1008.0  # 1.008 TB/s = 1008 GB/s
 
+    # Format dtype for display
+    dtype_display = dtype.upper() if dtype == "float32" else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
+
     # Create subplots
     fig = make_subplots(
         rows=2,
         cols=2,
         subplot_titles=(
-            "🚀 TFLOPS Performance vs Matrix Size",
-            "💾 Memory Bandwidth vs Matrix Size",
-            "⏱️ Execution Time vs Matrix Size",
-            "📈 Speedup vs PyTorch (Baseline)",
+            f"🚀 TFLOPS Performance vs Matrix Size ({dtype_display})",
+            f"💾 Memory Bandwidth vs Matrix Size ({dtype_display})",
+            f"⏱️ Execution Time vs Matrix Size ({dtype_display})",
+            f"📈 Speedup vs PyTorch (Baseline) ({dtype_display})",
         ),
         specs=[
             [{"secondary_y": False}, {"secondary_y": False}],
@@ -299,6 +247,8 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         "CUDA 2D Block Tiling": "#19D3F3",
         "CUDA Vectorize": "#FF6692",
         "CUDA Warptiling": "#FEC200",
+        "CUDA Tensor Core (FP16)": "#B6E880",
+        "CUDA Tensor Core (BF16)": "#8DD3C7",
     }
 
     # Plot 1: TFLOPS
@@ -423,7 +373,7 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
     # Update layout
     fig.update_layout(
         height=900,
-        title_text="<b>CUDA GEMM Kernel Benchmarks</b>",
+        title_text=f"<b>CUDA GEMM Kernel Benchmarks ({dtype_display})</b>",
         title_x=0.5,
         title_font=dict(size=20),
         template="plotly_white",
@@ -439,7 +389,7 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
     return fig
 
 
-def create_html_report(results_df: pd.DataFrame, output_dir: Path):
+def create_html_report(results_df: pd.DataFrame, output_dir: Path, dtype: str = "float32"):
     """Create HTML report with results and visualizations."""
     logger.info("📝 Creating HTML report...")
 
@@ -447,6 +397,9 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
 
     # Get GPU info
     gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
+
+    # Format dtype for display
+    dtype_display = dtype.upper() if dtype == "float32" else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
 
     html_content = f"""
 <!DOCTYPE html>
@@ -615,6 +568,11 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             color: #f57f17;
         }}
 
+        .badge-tensorcore {{
+            background: #e0f2f1;
+            color: #00695c;
+        }}
+
         .speedup {{
             font-weight: bold;
         }}
@@ -639,7 +597,7 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
 <body>
     <div class="container">
         <header>
-            <h1>🚀 CUDA GEMM Kernel Benchmarks</h1>
+            <h1>🚀 CUDA GEMM Kernel Benchmarks ({dtype_display})</h1>
             <p class="subtitle">Performance Comparison: PyTorch vs Custom CUDA Kernels</p>
         </header>
 
@@ -647,6 +605,10 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             <div class="info-card">
                 <h3>🖥️ GPU</h3>
                 <p>{gpu_name}</p>
+            </div>
+            <div class="info-card">
+                <h3>📊 Data Type</h3>
+                <p>{dtype_display}</p>
             </div>
             <div class="info-card">
                 <h3>⏰ Timestamp</h3>
@@ -697,6 +659,8 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             kernel_class = "vectorize"
         elif "Warptiling" in row["kernel"]:
             kernel_class = "warptiling"
+        elif "Tensor Core" in row["kernel"]:
+            kernel_class = "tensorcore"
         else:
             kernel_class = "coalesced"
         speedup_class = (
@@ -737,14 +701,43 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
     logger.success(f"✅ Saved HTML report to {report_file}")
 
 
-def run_benchmarks(kernels_to_run: List[str]):
-    """Run benchmarks for specified kernels."""
+def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
+    """Run benchmarks for specified kernels.
+
+    Args:
+        kernels_to_run: List of kernel names to benchmark
+        dtype: Data type for input matrices - "float32", "float16", or "bfloat16"
+    """
     # Enable TF32 for PyTorch
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
+    # FP32-only kernels that don't support FP16/BF16
+    fp32_only_kernels = {
+        "naive",
+        "global_mem_coalesce",
+        "shared_mem",
+        "blocktiling_1d",
+        "blocktiling_2d",
+        "vectorize",
+    }
+
+    # Filter out FP32-only kernels when using FP16/BF16
+    if dtype in ["float16", "bfloat16"]:
+        incompatible_kernels = [k for k in kernels_to_run if k in fp32_only_kernels]
+        if incompatible_kernels:
+            logger.warning(
+                f"⚠️  The following kernels only support FP32 and will be skipped: {', '.join(incompatible_kernels)}"
+            )
+            kernels_to_run = [k for k in kernels_to_run if k not in fp32_only_kernels]
+
+    if not kernels_to_run:
+        logger.error("❌ No compatible kernels to run!")
+        return
+
     logger.info("🎯 Running GEMM benchmarks...\n")
-    logger.info(f"📋 Kernels selected: {', '.join(kernels_to_run)}\n")
+    logger.info(f"📋 Kernels selected: {', '.join(kernels_to_run)}")
+    logger.info(f"🔢 Data type: {dtype}\n")
 
     # Get GPU memory info
     if torch.cuda.is_available():
@@ -752,9 +745,23 @@ def run_benchmarks(kernels_to_run: List[str]):
         logger.info(f"🖥️  GPU: {torch.cuda.get_device_name(0)}")
         logger.info(f"💾 Total GPU Memory: {gpu_mem_gb:.2f} GB\n")
 
+    # Map dtype string to torch dtype
+    dtype_map = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }
+    torch_dtype = dtype_map[dtype]
+
+    # Bytes per element for each dtype
+    bytes_per_element = {
+        "float32": 4,
+        "float16": 2,
+        "bfloat16": 2,
+    }
+    element_size = bytes_per_element[dtype]
+
     # Test sizes - expanded range up to memory limits
-    # Each float32 matrix of size NxN takes 4N^2 bytes
-    # For GEMM we need 3 matrices (A, B, C) = 12N^2 bytes
     test_sizes = [64, 96, 128, 256, 512, 768, 1024, 1536, 2048, 3072, 4096, 8192]
 
     # Store all results
@@ -766,8 +773,8 @@ def run_benchmarks(kernels_to_run: List[str]):
         logger.info(f"📐 Matrix dimensions: ({M}, {K}) @ ({K}, {N}) = ({M}, {N})")
 
         # Calculate expected memory usage
-        memory_per_matrix_gb = (M * K * 4) / 1e9  # float32 = 4 bytes
-        total_memory_gb = 3 * memory_per_matrix_gb  # A, B, C
+        memory_per_matrix_gb = (M * K * element_size) / 1e9
+        total_memory_gb = 3 * memory_per_matrix_gb  # A, B, C (output is FP32)
         logger.info(
             f"💾 Expected memory usage: {total_memory_gb:.2f} GB ({memory_per_matrix_gb:.2f} GB per matrix)"
         )
@@ -775,9 +782,9 @@ def run_benchmarks(kernels_to_run: List[str]):
 
         # Try to allocate tensors, catch OOM errors
         try:
-            # Generate random inputs
-            a = torch.randn((M, K), device="cuda", dtype=torch.float32)
-            b = torch.randn((K, N), device="cuda", dtype=torch.float32)
+            # Generate random inputs with specified dtype
+            a = torch.randn((M, K), device="cuda", dtype=torch_dtype)
+            b = torch.randn((K, N), device="cuda", dtype=torch_dtype)
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 logger.warning(
@@ -790,7 +797,7 @@ def run_benchmarks(kernels_to_run: List[str]):
             else:
                 raise
 
-        # All available kernels
+        # All available kernels (FP32 kernels available for all dtypes)
         all_kernels = [
             ("pytorch", "PyTorch", torch_gemm, "🔵"),
             ("naive", "CUDA Naive", cuda_naive_gemm, "🔴"),
@@ -801,6 +808,26 @@ def run_benchmarks(kernels_to_run: List[str]):
             ("vectorize", "CUDA Vectorize", cuda_vectorize_gemm, "💫"),
             ("warptiling", "CUDA Warptiling", cuda_warptiling_gemm, "⚡"),
         ]
+
+        # Add Tensor Core kernels only for FP16/BF16
+        if dtype == "float16":
+            all_kernels.append(
+                (
+                    "tensorcore_fp16",
+                    "CUDA Tensor Core (FP16)",
+                    cuda_tensorcore_fp16_gemm,
+                    "🚀",
+                )
+            )
+        elif dtype == "bfloat16":
+            all_kernels.append(
+                (
+                    "tensorcore_bf16",
+                    "CUDA Tensor Core (BF16)",
+                    cuda_tensorcore_bf16_gemm,
+                    "🚀",
+                )
+            )
 
         # Filter kernels based on user selection
         kernels = [
@@ -912,10 +939,10 @@ def run_benchmarks(kernels_to_run: List[str]):
     logger.success(f"💾 Saved results to {csv_file}")
 
     # Create visualizations
-    create_visualization(results_df, output_dir)
+    create_visualization(results_df, output_dir, dtype)
 
     # Create HTML report
-    create_html_report(results_df, output_dir)
+    create_html_report(results_df, output_dir, dtype)
 
     # Open the report in browser
     report_path = output_dir / "index.html"
@@ -945,55 +972,68 @@ def run_benchmarks(kernels_to_run: List[str]):
             "blocktiling_2d",
             "vectorize",
             "warptiling",
+            "tensorcore_fp16",
+            "tensorcore_bf16",
         ],
         case_sensitive=False,
     ),
-    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce, shared_mem, blocktiling_1d, blocktiling_2d, vectorize, warptiling",
+    help="Specify which kernels to benchmark. Can be used multiple times.",
 )
-def main(kernels):
+@click.option(
+    "--dtype",
+    "-d",
+    type=click.Choice(["float32", "float16", "bfloat16"], case_sensitive=False),
+    default="float32",
+    help="Data type for input matrices (default: float32). Tensor Core kernels require float16 or bfloat16.",
+)
+def main(kernels, dtype):
     """Benchmark CUDA GEMM kernels against PyTorch.
 
     Examples:
-        # Run all kernels (default)
+        # Run all FP32 kernels (default)
         python benchmark.py
 
-        # Run only PyTorch and naive kernels
+        # Run all FP16-compatible kernels (auto-filters to PyTorch, warptiling, tensorcore)
+        python benchmark.py -d float16
+
+        # Run all BF16-compatible kernels (auto-filters to PyTorch, warptiling, tensorcore)
+        python benchmark.py -d bfloat16
+
+        # Run specific kernels with FP16
+        python benchmark.py -d float16 -k pytorch -k tensorcore_fp16
+
+        # Run only PyTorch and naive kernels (FP32)
         python benchmark.py -k pytorch -k naive
 
-        # Run only coalesced kernel
-        python benchmark.py -k global_mem_coalesce
-
-        # Run shared memory kernel
-        python benchmark.py -k pytorch -k shared_mem
-
-        # Run 1D block tiling kernel
-        python benchmark.py -k pytorch -k blocktiling_1d
-
-        # Run 2D block tiling kernel
-        python benchmark.py -k pytorch -k blocktiling_2d
-
-        # Run vectorize kernel
-        python benchmark.py -k pytorch -k vectorize
-
-        # Run warptiling kernel (most optimized)
+        # Run warptiling kernel with all dtypes
         python benchmark.py -k pytorch -k warptiling
+        python benchmark.py -d float16 -k pytorch -k warptiling
     """
-    # If no kernels specified, run all
+    # If no kernels specified, run all available for the dtype
     if not kernels:
-        kernels_to_run = [
-            "pytorch",
-            "naive",
-            "global_mem_coalesce",
-            "shared_mem",
-            "blocktiling_1d",
-            "blocktiling_2d",
-            "vectorize",
-            "warptiling",
-        ]
+        # PyTorch and warptiling support all dtypes
+        kernels_to_run = ["pytorch", "warptiling"]
+
+        # FP32-only kernels (don't support FP16/BF16)
+        if dtype == "float32":
+            kernels_to_run.extend([
+                "naive",
+                "global_mem_coalesce",
+                "shared_mem",
+                "blocktiling_1d",
+                "blocktiling_2d",
+                "vectorize",
+            ])
+
+        # Add Tensor Core kernels for FP16/BF16
+        if dtype == "float16":
+            kernels_to_run.append("tensorcore_fp16")
+        elif dtype == "bfloat16":
+            kernels_to_run.append("tensorcore_bf16")
     else:
         kernels_to_run = list(kernels)
 
-    run_benchmarks(kernels_to_run)
+    run_benchmarks(kernels_to_run, dtype)
 
 
 if __name__ == "__main__":

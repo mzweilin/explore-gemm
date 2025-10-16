@@ -41,7 +41,10 @@ WSUBN = WN / WNITER (warp subtile N dimension)
 
 #define CEIL_DIV(m, n) (((m) + (n) - 1) / (n))
 
+#ifndef WARPSIZE_
 constexpr int WARPSIZE = 32;
+#define WARPSIZE_ 32
+#endif
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -54,8 +57,9 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
                                int inner_row_b, int inner_col_b)
 {
     // Load tile_a with float4 vectorized loads and transpose
-    for (uint offset = 0; offset + row_stride_a <= BM; offset += row_stride_a) {
-        const float4 tmp_a = reinterpret_cast<const float4*>(
+    for (uint offset = 0; offset + row_stride_a <= BM; offset += row_stride_a)
+    {
+        const float4 tmp_a = reinterpret_cast<const float4 *>(
             &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 4])[0];
         // Transpose while storing to shared memory
         tile_a[(inner_col_a * 4 + 0) * BM + inner_row_a + offset] = tmp_a.x;
@@ -65,10 +69,11 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
     }
 
     // Load tile_b with float4 vectorized loads
-    for (uint offset = 0; offset + row_stride_b <= BK; offset += row_stride_b) {
-        reinterpret_cast<float4*>(
+    for (uint offset = 0; offset + row_stride_b <= BK; offset += row_stride_b)
+    {
+        reinterpret_cast<float4 *>(
             &tile_b[(inner_row_b + offset) * BN + inner_col_b * 4])[0] =
-            reinterpret_cast<const float4*>(
+            reinterpret_cast<const float4 *>(
                 &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 4])[0];
     }
 }
@@ -78,16 +83,19 @@ template <const int BM, const int BN, const int BK, const int WM, const int WN,
           const int WMITER, const int WNITER, const int WSUBM, const int WSUBN,
           const int TM, const int TN>
 __device__ void process_warp_tile(float *register_m, float *register_n, float *thread_results,
-                                   const float *tile_a, const float *tile_b,
-                                   const uint warp_row, const uint warp_col,
-                                   const uint thread_row_in_warp, const uint thread_col_in_warp)
+                                  const float *tile_a, const float *tile_b,
+                                  const uint warp_row, const uint warp_col,
+                                  const uint thread_row_in_warp, const uint thread_col_in_warp)
 {
     // Loop over BK dimension
-    for (uint dot_idx = 0; dot_idx < BK; ++dot_idx) {
+    for (uint dot_idx = 0; dot_idx < BK; ++dot_idx)
+    {
         // Populate registers for entire warptile
         // Load WMITER * TM elements from tile_a (covers all warp subtiles in M dimension)
-        for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx) {
-            for (uint i = 0; i < TM; ++i) {
+        for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
+        {
+            for (uint i = 0; i < TM; ++i)
+            {
                 register_m[wsub_row_idx * TM + i] =
                     tile_a[(dot_idx * BM) + warp_row * WM + wsub_row_idx * WSUBM +
                            thread_row_in_warp * TM + i];
@@ -95,8 +103,10 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
         }
 
         // Load WNITER * TN elements from tile_b (covers all warp subtiles in N dimension)
-        for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx) {
-            for (uint i = 0; i < TN; ++i) {
+        for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
+        {
+            for (uint i = 0; i < TN; ++i)
+            {
                 register_n[wsub_col_idx * TN + i] =
                     tile_b[(dot_idx * BN) + warp_col * WN + wsub_col_idx * WSUBN +
                            thread_col_in_warp * TN + i];
@@ -104,13 +114,17 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
         }
 
         // Execute warptile matmul across all warp subtiles
-        for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx) {
-            for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx) {
+        for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
+        {
+            for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
+            {
                 // Calculate per-thread results for this warp subtile
-                for (uint res_idx_m = 0; res_idx_m < TM; ++res_idx_m) {
-                    for (uint res_idx_n = 0; res_idx_n < TN; ++res_idx_n) {
+                for (uint res_idx_m = 0; res_idx_m < TM; ++res_idx_m)
+                {
+                    for (uint res_idx_n = 0; res_idx_n < TN; ++res_idx_n)
+                    {
                         thread_results[(wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
-                                      (wsub_col_idx * TN) + res_idx_n] +=
+                                       (wsub_col_idx * TN) + res_idx_n] +=
                             register_m[wsub_row_idx * TM + res_idx_m] *
                             register_n[wsub_col_idx * TN + res_idx_n];
                     }
@@ -125,27 +139,27 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
 template <const int BM, const int BN, const int BK, const int WM, const int WN,
           const int WNITER, const int TM, const int TN, const int NUM_THREADS>
 __global__ void __launch_bounds__(NUM_THREADS)
-sgemm_warptiling_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
-                        float alpha, const float *matrix_a, const float *matrix_b,
-                        float beta, float *matrix_c)
+    sgemm_warptiling_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
+                            float alpha, const float *matrix_a, const float *matrix_b,
+                            float beta, float *matrix_c)
 {
     const uint block_row = blockIdx.y;
     const uint block_col = blockIdx.x;
 
     // Warp-level placement within threadblock
-    const uint warp_idx = threadIdx.x / WARPSIZE;          // Which warp this thread belongs to
-    const uint warp_col = warp_idx % (BN / WN);            // Warp's column in block tile
-    const uint warp_row = warp_idx / (BN / WN);            // Warp's row in block tile
+    const uint warp_idx = threadIdx.x / WARPSIZE; // Which warp this thread belongs to
+    const uint warp_col = warp_idx % (BN / WN);   // Warp's column in block tile
+    const uint warp_row = warp_idx / (BN / WN);   // Warp's row in block tile
 
     // Warp subtile dimensions
     // WMITER: number of subtile iterations in M dimension per warp
     // Formula: total warp work (WM*WN) / work per thread per iteration (WARPSIZE*TM*TN*WNITER)
     constexpr uint WMITER = (WM * WN) / (WARPSIZE * TM * TN * WNITER);
-    constexpr uint WSUBM = WM / WMITER;  // Warp subtile height
-    constexpr uint WSUBN = WN / WNITER;  // Warp subtile width
+    constexpr uint WSUBM = WM / WMITER; // Warp subtile height
+    constexpr uint WSUBN = WN / WNITER; // Warp subtile width
 
     // Thread placement within warp subtile
-    const uint thread_idx_in_warp = threadIdx.x % WARPSIZE;           // [0, 31]
+    const uint thread_idx_in_warp = threadIdx.x % WARPSIZE;            // [0, 31]
     const uint thread_col_in_warp = thread_idx_in_warp % (WSUBN / TN); // Column within subtile
     const uint thread_row_in_warp = thread_idx_in_warp / (WSUBN / TN); // Row within subtile
 
@@ -176,7 +190,8 @@ sgemm_warptiling_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
     float register_n[WNITER * TN] = {0.0f};
 
     // Outer loop over block tiles along K dimension
-    for (uint block_k_idx = 0; block_k_idx < num_cols_a; block_k_idx += BK) {
+    for (uint block_k_idx = 0; block_k_idx < num_cols_a; block_k_idx += BK)
+    {
         // Load block tile from global memory to shared memory
         load_from_gmem<BM, BN, BK, row_stride_a, row_stride_b>(
             num_cols_b, num_cols_a, matrix_a, matrix_b, tile_a, tile_b,
@@ -199,31 +214,35 @@ sgemm_warptiling_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
     // ==================== WRITE RESULTS TO GLOBAL MEMORY ====================
 
     // Write results for each warp subtile with vectorized stores
-    for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx) {
-        for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx) {
+    for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
+    {
+        for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
+        {
             // Move pointer to current warp subtile
             float *matrix_c_interim = matrix_c + (wsub_row_idx * WSUBM) * num_cols_b +
-                                     wsub_col_idx * WSUBN;
+                                      wsub_col_idx * WSUBN;
 
-            for (uint res_idx_m = 0; res_idx_m < TM; res_idx_m += 1) {
-                for (uint res_idx_n = 0; res_idx_n < TN; res_idx_n += 4) {
+            for (uint res_idx_m = 0; res_idx_m < TM; res_idx_m += 1)
+            {
+                for (uint res_idx_n = 0; res_idx_n < TN; res_idx_n += 4)
+                {
                     // Load C vector into registers
-                    float4 tmp_c = reinterpret_cast<float4*>(
+                    float4 tmp_c = reinterpret_cast<float4 *>(
                         &matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                         thread_col_in_warp * TN + res_idx_n])[0];
+                                          thread_col_in_warp * TN + res_idx_n])[0];
 
                     // Perform GEMM update in registers
                     const int res_idx = (wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
-                                       wsub_col_idx * TN + res_idx_n;
+                                        wsub_col_idx * TN + res_idx_n;
                     tmp_c.x = alpha * thread_results[res_idx + 0] + beta * tmp_c.x;
                     tmp_c.y = alpha * thread_results[res_idx + 1] + beta * tmp_c.y;
                     tmp_c.z = alpha * thread_results[res_idx + 2] + beta * tmp_c.z;
                     tmp_c.w = alpha * thread_results[res_idx + 3] + beta * tmp_c.w;
 
                     // Write back with vectorized store
-                    reinterpret_cast<float4*>(
+                    reinterpret_cast<float4 *>(
                         &matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                         thread_col_in_warp * TN + res_idx_n])[0] = tmp_c;
+                                          thread_col_in_warp * TN + res_idx_n])[0] = tmp_c;
                 }
             }
         }
@@ -289,7 +308,7 @@ void sgemm_warptiling(const torch::Tensor &matrix_a, const torch::Tensor &matrix
 
 // Default configuration wrapper
 void sgemm_warptiling_default(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                               torch::Tensor &output_matrix, float alpha, float beta)
+                              torch::Tensor &output_matrix, float alpha, float beta)
 {
     // Default configuration: BM=128, BN=128, BK=16, WM=64, WN=64, WNITER=4, TM=8, TN=4, NUM_THREADS=128
     // This gives: WMITER=2, WSUBM=32, WSUBN=16
@@ -302,13 +321,13 @@ void sgemm_warptiling_default(const torch::Tensor &matrix_a, const torch::Tensor
 // Explicit template instantiations for commonly used configurations
 // Configuration 1: BM=128, BN=128, BK=16, WM=64, WN=64, WNITER=4, TM=8, TN=4, NUM_THREADS=128
 template void sgemm_warptiling<128, 128, 16, 64, 64, 4, 8, 4, 128>(
-    const torch::Tensor&, const torch::Tensor&, torch::Tensor&, float, float);
+    const torch::Tensor &, const torch::Tensor &, torch::Tensor &, float, float);
 
 // Configuration 2: BM=128, BN=128, BK=16, WM=64, WN=32, WNITER=2, TM=8, TN=4, NUM_THREADS=256
 // WMITER = (64*32)/(32*8*4*2) = 2048/2048 = 1, WSUBM=64, WSUBN=16
 template void sgemm_warptiling<128, 128, 16, 64, 32, 2, 8, 4, 256>(
-    const torch::Tensor&, const torch::Tensor&, torch::Tensor&, float, float);
+    const torch::Tensor &, const torch::Tensor &, torch::Tensor &, float, float);
 
 // Configuration 3: BM=64, BN=64, BK=16, WM=32, WN=32, WNITER=2, TM=4, TN=4, NUM_THREADS=64
 template void sgemm_warptiling<64, 64, 16, 32, 32, 2, 4, 4, 64>(
-    const torch::Tensor&, const torch::Tensor&, torch::Tensor&, float, float);
+    const torch::Tensor &, const torch::Tensor &, torch::Tensor &, float, float);

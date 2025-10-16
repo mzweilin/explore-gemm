@@ -75,6 +75,12 @@ target_link_libraries(test_gemm_vectorize "${TORCH_LIBRARIES}")
 add_executable(test_gemm_warptiling ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling.cpp ${gpu_source_files})
 target_link_libraries(test_gemm_warptiling "${TORCH_LIBRARIES}")
 
+add_executable(test_gemm_warptiling_all_dtypes ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling_all_dtypes.cpp ${gpu_source_files})
+target_link_libraries(test_gemm_warptiling_all_dtypes "${TORCH_LIBRARIES}")
+
+add_executable(test_gemm_tensorcore ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore.cpp ${gpu_source_files})
+target_link_libraries(test_gemm_tensorcore "${TORCH_LIBRARIES}")
+
 add_executable(autotune_kernels ${CMAKE_SOURCE_DIR}/cuda/autotune_kernels.cpp ${gpu_source_files})
 target_link_libraries(autotune_kernels "${TORCH_LIBRARIES}")
 
@@ -87,6 +93,8 @@ add_test(NAME test_gemm_blocktiling1d COMMAND test_gemm_blocktiling1d)
 add_test(NAME test_gemm_blocktiling2d COMMAND test_gemm_blocktiling2d)
 add_test(NAME test_gemm_vectorize COMMAND test_gemm_vectorize)
 add_test(NAME test_gemm_warptiling COMMAND test_gemm_warptiling)
+add_test(NAME test_gemm_warptiling_all_dtypes COMMAND test_gemm_warptiling_all_dtypes)
+add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
 
 # NOTES
 # Build with: cmake -B build
