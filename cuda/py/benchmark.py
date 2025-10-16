@@ -19,6 +19,7 @@ Available kernels:
     - blocktiling_1d: CUDA GEMM with 1D block tiling
     - blocktiling_2d: CUDA GEMM with 2D block tiling
     - vectorize: CUDA GEMM with vectorized memory access
+    - warptiling: CUDA GEMM with warp-level tiling (most optimized)
 """
 
 import os
@@ -80,6 +81,7 @@ def create_cuda_extension():
     blocktiling_1d_cu = file_dir / "04_kernel_blocktiling_1d.cu"
     blocktiling_2d_cu = file_dir / "05_kernel_blocktiling_2d.cu"
     vectorize_cu = file_dir / "06_kernel_vectorize.cu"
+    warptiling_cu = file_dir / "07_kernel_warptiling.cu"
     header_file = file_dir / "gemm_kernels.cuh"
 
     logger.info("📂 Loading CUDA sources:")
@@ -89,6 +91,7 @@ def create_cuda_extension():
     logger.info(f"   • 1D Block Tiling: {blocktiling_1d_cu}")
     logger.info(f"   • 2D Block Tiling: {blocktiling_2d_cu}")
     logger.info(f"   • Vectorize: {vectorize_cu}")
+    logger.info(f"   • Warptiling: {warptiling_cu}")
     logger.info(f"   • Header: {header_file}")
 
     # Read all source files
@@ -97,7 +100,8 @@ def create_cuda_extension():
     shared_mem_code, _ = get_cuda_code(str(shared_mem_cu), str(header_file))
     blocktiling_1d_code, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file))
     blocktiling_2d_code, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
-    vectorize_code, header_code = get_cuda_code(str(vectorize_cu), str(header_file))
+    vectorize_code, _ = get_cuda_code(str(vectorize_cu), str(header_file))
+    warptiling_code, header_code = get_cuda_code(str(warptiling_cu), str(header_file))
 
     # Combine CUDA sources
     combined_cuda_code = (
@@ -112,6 +116,8 @@ def create_cuda_extension():
         + blocktiling_2d_code
         + "\n"
         + vectorize_code
+        + "\n"
+        + warptiling_code
     )
 
     # Create build directory
@@ -132,6 +138,7 @@ def create_cuda_extension():
             "sgemm_blocktiling_1d",
             "sgemm_blocktiling_2d",
             "sgemm_vectorize",
+            "sgemm_warptiling_default",
         ],
         with_cuda=True,
         verbose=True,
@@ -193,6 +200,14 @@ def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     # Create output tensor on CUDA device
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_vectorize(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for warptiling CUDA GEMM kernel."""
+    # Create output tensor on CUDA device
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_warptiling_default(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
@@ -283,6 +298,7 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path):
         "CUDA 1D Block Tiling": "#FFA15A",
         "CUDA 2D Block Tiling": "#19D3F3",
         "CUDA Vectorize": "#FF6692",
+        "CUDA Warptiling": "#FEC200",
     }
 
     # Plot 1: TFLOPS
@@ -594,6 +610,11 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             color: #c2185b;
         }}
 
+        .badge-warptiling {{
+            background: #fff9c4;
+            color: #f57f17;
+        }}
+
         .speedup {{
             font-weight: bold;
         }}
@@ -674,6 +695,8 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path):
             kernel_class = "blocktiling"
         elif "Vectorize" in row["kernel"]:
             kernel_class = "vectorize"
+        elif "Warptiling" in row["kernel"]:
+            kernel_class = "warptiling"
         else:
             kernel_class = "coalesced"
         speedup_class = (
@@ -776,6 +799,7 @@ def run_benchmarks(kernels_to_run: List[str]):
             ("blocktiling_1d", "CUDA 1D Block Tiling", cuda_blocktiling_1d_gemm, "🟠"),
             ("blocktiling_2d", "CUDA 2D Block Tiling", cuda_blocktiling_2d_gemm, "🔷"),
             ("vectorize", "CUDA Vectorize", cuda_vectorize_gemm, "💫"),
+            ("warptiling", "CUDA Warptiling", cuda_warptiling_gemm, "⚡"),
         ]
 
         # Filter kernels based on user selection
@@ -920,10 +944,11 @@ def run_benchmarks(kernels_to_run: List[str]):
             "blocktiling_1d",
             "blocktiling_2d",
             "vectorize",
+            "warptiling",
         ],
         case_sensitive=False,
     ),
-    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce, shared_mem, blocktiling_1d, blocktiling_2d, vectorize",
+    help="Specify which kernels to benchmark. Can be used multiple times. Choices: pytorch, naive, global_mem_coalesce, shared_mem, blocktiling_1d, blocktiling_2d, vectorize, warptiling",
 )
 def main(kernels):
     """Benchmark CUDA GEMM kernels against PyTorch.
@@ -949,6 +974,9 @@ def main(kernels):
 
         # Run vectorize kernel
         python benchmark.py -k pytorch -k vectorize
+
+        # Run warptiling kernel (most optimized)
+        python benchmark.py -k pytorch -k warptiling
     """
     # If no kernels specified, run all
     if not kernels:
@@ -960,6 +988,7 @@ def main(kernels):
             "blocktiling_1d",
             "blocktiling_2d",
             "vectorize",
+            "warptiling",
         ]
     else:
         kernels_to_run = list(kernels)

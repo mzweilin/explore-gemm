@@ -72,6 +72,12 @@ target_link_libraries(test_gemm_blocktiling2d "${TORCH_LIBRARIES}")
 add_executable(test_gemm_vectorize ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_vectorize.cpp ${gpu_source_files})
 target_link_libraries(test_gemm_vectorize "${TORCH_LIBRARIES}")
 
+add_executable(test_gemm_warptiling ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling.cpp ${gpu_source_files})
+target_link_libraries(test_gemm_warptiling "${TORCH_LIBRARIES}")
+
+add_executable(autotune_kernels ${CMAKE_SOURCE_DIR}/cuda/autotune_kernels.cpp ${gpu_source_files})
+target_link_libraries(autotune_kernels "${TORCH_LIBRARIES}")
+
 enable_testing()
 
 add_test(NAME test_gemm_naive COMMAND test_gemm_naive)
@@ -80,6 +86,7 @@ add_test(NAME test_gemm_shared_mem COMMAND test_gemm_shared_mem)
 add_test(NAME test_gemm_blocktiling1d COMMAND test_gemm_blocktiling1d)
 add_test(NAME test_gemm_blocktiling2d COMMAND test_gemm_blocktiling2d)
 add_test(NAME test_gemm_vectorize COMMAND test_gemm_vectorize)
+add_test(NAME test_gemm_warptiling COMMAND test_gemm_warptiling)
 
 # NOTES
 # Build with: cmake -B build
