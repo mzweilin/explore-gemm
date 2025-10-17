@@ -61,10 +61,14 @@ constexpr int vec_size<half>() { return 2; }
 template <>
 constexpr int vec_size<nv_bfloat16>() { return 2; }
 
-// Type conversion helper for 16-bit types to float
-// (works even when conversion operators are disabled by PyTorch macros)
+// Type conversion helpers for 16-bit types
+// (work even when conversion operators are disabled by PyTorch macros)
 __device__ __forceinline__ float to_float(half x) { return __half2float(x); }
 __device__ __forceinline__ float to_float(nv_bfloat16 x) { return __bfloat162float(x); }
+
+// Convert float to InputType (using CUDA intrinsics for 16-bit types)
+__device__ __forceinline__ half from_float(float x, half) { return __float2half(x); }
+__device__ __forceinline__ nv_bfloat16 from_float(float x, nv_bfloat16) { return __float2bfloat16(x); }
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -116,7 +120,7 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
 }
 
 // Process warptile: compute using warp subtiling
-// InputType for loads, float for accumulation
+// Convert to float on load for best numerical precision
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WMITER, const int WNITER,
           const int WSUBM, const int WSUBN, const int TM, const int TN>
@@ -128,16 +132,16 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
     // Loop over BK dimension
     for (uint dot_idx = 0; dot_idx < BK; ++dot_idx)
     {
-        // Populate registers for entire warptile
+        // Populate registers for entire warptile (convert to FP32 on load)
         // Load WMITER * TM elements from tile_a (covers all warp subtiles in M dimension)
         for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
         {
             for (uint i = 0; i < TM; ++i)
             {
-                // Convert to float for computation (works for float, half, nv_bfloat16)
-                register_m[wsub_row_idx * TM + i] = to_float(
-                    tile_a[(dot_idx * BM) + warp_row * WM + wsub_row_idx * WSUBM +
-                           thread_row_in_warp * TM + i]);
+                // Convert to float on load for best numerical precision
+                register_m[wsub_row_idx * TM + i] =
+                    to_float(tile_a[(dot_idx * BM) + warp_row * WM + wsub_row_idx * WSUBM +
+                                    thread_row_in_warp * TM + i]);
             }
         }
 
@@ -146,10 +150,10 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
         {
             for (uint i = 0; i < TN; ++i)
             {
-                // Convert to float for computation (works for float, half, nv_bfloat16)
-                register_n[wsub_col_idx * TN + i] = to_float(
-                    tile_b[(dot_idx * BN) + warp_col * WN + wsub_col_idx * WSUBN +
-                           thread_col_in_warp * TN + i]);
+                // Convert to float on load for best numerical precision
+                register_n[wsub_col_idx * TN + i] =
+                    to_float(tile_b[(dot_idx * BN) + warp_col * WN + wsub_col_idx * WSUBN +
+                                    thread_col_in_warp * TN + i]);
             }
         }
 
@@ -163,6 +167,7 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
                 {
                     for (uint res_idx_n = 0; res_idx_n < TN; ++res_idx_n)
                     {
+                        // FMA with FP32 values (no conversion needed)
                         thread_results[(wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
                                        (wsub_col_idx * TN) + res_idx_n] +=
                             register_m[wsub_row_idx * TM + res_idx_m] *
@@ -239,7 +244,7 @@ template <typename InputType, const int BM, const int BN, const int BK,
 __global__ void __launch_bounds__(NUM_THREADS)
     sgemm_warptiling_multidtype_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                        float alpha, const InputType *matrix_a, const InputType *matrix_b,
-                                       float beta, float *matrix_c)
+                                       float beta, InputType *matrix_c)
 {
     const uint block_row = blockIdx.y;
     const uint block_col = blockIdx.x;
@@ -278,7 +283,8 @@ __global__ void __launch_bounds__(NUM_THREADS)
     const uint inner_col_b = threadIdx.x % (BN / VEC_SIZE);
     constexpr uint row_stride_b = NUM_THREADS / (BN / VEC_SIZE);
 
-    // Thread-local storage in registers (always FP32 for accumulation)
+    // Thread-local storage in registers
+    // All registers are FP32 for numerical precision (convert on load, not in FMA loop)
     float thread_results[WMITER * TM * WNITER * TN] = {0.0f};
     float register_m[WMITER * TM] = {0.0f};
     float register_n[WNITER * TN] = {0.0f};
@@ -307,35 +313,29 @@ __global__ void __launch_bounds__(NUM_THREADS)
 
     // ==================== WRITE RESULTS TO GLOBAL MEMORY ====================
 
-    // Write results for each warp subtile with vectorized stores (always FP32 output)
+    // Write results for each warp subtile (convert from FP32 to InputType)
     for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
     {
         for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
         {
-            float *matrix_c_interim = matrix_c + (wsub_row_idx * WSUBM) * num_cols_b +
-                                      wsub_col_idx * WSUBN;
+            InputType *matrix_c_interim = matrix_c + (wsub_row_idx * WSUBM) * num_cols_b +
+                                          wsub_col_idx * WSUBN;
 
             for (uint res_idx_m = 0; res_idx_m < TM; res_idx_m += 1)
             {
-                for (uint res_idx_n = 0; res_idx_n < TN; res_idx_n += 4)
+                for (uint res_idx_n = 0; res_idx_n < TN; ++res_idx_n)
                 {
-                    // Load C vector into registers
-                    float4 tmp_c = reinterpret_cast<float4 *>(
-                        &matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                          thread_col_in_warp * TN + res_idx_n])[0];
-
-                    // Perform GEMM update in registers
                     const int res_idx = (wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
                                         wsub_col_idx * TN + res_idx_n;
-                    tmp_c.x = alpha * thread_results[res_idx + 0] + beta * tmp_c.x;
-                    tmp_c.y = alpha * thread_results[res_idx + 1] + beta * tmp_c.y;
-                    tmp_c.z = alpha * thread_results[res_idx + 2] + beta * tmp_c.z;
-                    tmp_c.w = alpha * thread_results[res_idx + 3] + beta * tmp_c.w;
 
-                    // Write back with vectorized store
-                    reinterpret_cast<float4 *>(
-                        &matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                          thread_col_in_warp * TN + res_idx_n])[0] = tmp_c;
+                    // Load C value, perform GEMM update, and write back
+                    // Accumulation is in FP32, then converted to InputType for output
+                    InputType c_val = matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
+                                                       thread_col_in_warp * TN + res_idx_n];
+                    // Use to_float() and from_float() helpers for type conversion
+                    float result = alpha * thread_results[res_idx] + beta * to_float(c_val);
+                    matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
+                                     thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
                 }
             }
         }
@@ -355,7 +355,9 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
     TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
     TORCH_CHECK(matrix_b.device().is_cuda(), "Matrix B must be on CUDA device");
     TORCH_CHECK(output_matrix.device().is_cuda(), "Matrix C must be on CUDA device");
-    TORCH_CHECK(output_matrix.dtype() == torch::kFloat32, "Matrix C must be float32");
+    // Output dtype must match input dtype (like PyTorch behavior)
+    TORCH_CHECK(output_matrix.dtype() == matrix_a.dtype(),
+                "Matrix C must have same dtype as input matrices");
     TORCH_CHECK(matrix_a.dim() == 2, "Matrix A must be 2D");
     TORCH_CHECK(matrix_b.dim() == 2, "Matrix B must be 2D");
 
@@ -385,7 +387,8 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
     // Get raw device pointers
     const InputType *d_matrix_a = reinterpret_cast<const InputType *>(matrix_a.data_ptr());
     const InputType *d_matrix_b = reinterpret_cast<const InputType *>(matrix_b.data_ptr());
-    float *d_output_matrix = output_matrix.data_ptr<float>();
+    // Output is same dtype as input (like PyTorch)
+    InputType *d_output_matrix = reinterpret_cast<InputType *>(output_matrix.data_ptr());
 
     // Configure kernel launch
     dim3 block_dim(NUM_THREADS);

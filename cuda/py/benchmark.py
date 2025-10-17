@@ -124,8 +124,8 @@ def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for warptiling CUDA GEMM kernel (dtype-aware)."""
-    # Create output tensor on CUDA device (always FP32 output)
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    # Create output tensor on CUDA device with same dtype as input (like PyTorch)
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
 
     # Dispatch to appropriate warptiling kernel based on input dtype
     if a.dtype == torch.float32:
@@ -141,19 +141,31 @@ def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def cuda_tensorcore_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs."""
-    # Create output tensor on CUDA device (FP32 output)
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_fp16(a, b, c, 1.0, 0.0)  # type: ignore
-    return c
+    """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs.
+
+    Note: Tensor Cores accumulate in FP32 for numerical stability, so output is FP32.
+    This differs from PyTorch which returns FP16. To match PyTorch behavior exactly,
+    we convert the output back to FP16.
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
 
 
 def cuda_tensorcore_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs."""
-    # Create output tensor on CUDA device (FP32 output)
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_bf16(a, b, c, 1.0, 0.0)  # type: ignore
-    return c
+    """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs.
+
+    Note: Tensor Cores accumulate in FP32 for numerical stability, so output is FP32.
+    This differs from PyTorch which returns BF16. To match PyTorch behavior exactly,
+    we convert the output back to BF16.
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
 
 
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -194,15 +206,21 @@ def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100):
     return avg_time_ms, min_time_ms, max_time_ms
 
 
-def calculate_metrics(M, N, K, avg_time_ms):
-    """Calculate TFLOPS and bandwidth."""
+def calculate_metrics(M, N, K, avg_time_ms, element_size: int = 4):
+    """Calculate TFLOPS and bandwidth.
+
+    Args:
+        M, N, K: Matrix dimensions
+        avg_time_ms: Average execution time in milliseconds
+        element_size: Bytes per element (4 for FP32, 2 for FP16/BF16)
+    """
     # FLOPs: 2MNK for matrix multiplication
     flops = 2 * M * N * K
     tflops = (flops / (avg_time_ms * 1e-3)) * 1e-12
 
     # Memory bandwidth: read A (MxK), read B (KxN), write C (MxN)
-    bytes_per_element = 4  # float32
-    bytes_total = (M * K + K * N + M * N) * bytes_per_element
+    # All matrices use the same dtype now (matching PyTorch behavior)
+    bytes_total = (M * K + K * N + M * N) * element_size
     bandwidth_gbps = (bytes_total * 1e-9) / (avg_time_ms * 1e-3)
 
     return tflops, bandwidth_gbps
@@ -842,7 +860,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             logger.info(f"\n{emoji} Benchmarking {kernel_name}...")
             try:
                 avg_ms, min_ms, max_ms = benchmark_kernel(kernel_fn, a, b)
-                tflops, bandwidth = calculate_metrics(M, N, K, avg_ms)
+                tflops, bandwidth = calculate_metrics(M, N, K, avg_ms, element_size)
 
                 size_results[kernel_name] = {
                     "avg_time_ms": avg_ms,

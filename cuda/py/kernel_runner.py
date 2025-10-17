@@ -141,7 +141,18 @@ def run_kernel_n_times(
     "-k",
     "--kernel",
     type=click.Choice(
-        ["naive", "global_mem_coalesce", "shared_mem", "blocktiling_1d", "blocktiling_2d", "vectorize", "warptiling", "tensorcore_fp16", "tensorcore_bf16"], case_sensitive=False
+        [
+            "naive",
+            "global_mem_coalesce",
+            "shared_mem",
+            "blocktiling_1d",
+            "blocktiling_2d",
+            "vectorize",
+            "warptiling",
+            "tensorcore_fp16",
+            "tensorcore_bf16",
+        ],
+        case_sensitive=False,
     ),
     required=True,
     help="Kernel to run",
@@ -199,10 +210,14 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
 
     # Auto-detect required dtype for Tensor Core kernels if not specified
     if kernel == "tensorcore_fp16" and dtype == "float32":
-        logger.warning("⚠️  tensorcore_fp16 requires float16 dtype, auto-switching to float16")
+        logger.warning(
+            "⚠️  tensorcore_fp16 requires float16 dtype, auto-switching to float16"
+        )
         dtype = "float16"
     elif kernel == "tensorcore_bf16" and dtype == "float32":
-        logger.warning("⚠️  tensorcore_bf16 requires bfloat16 dtype, auto-switching to bfloat16")
+        logger.warning(
+            "⚠️  tensorcore_bf16 requires bfloat16 dtype, auto-switching to bfloat16"
+        )
         dtype = "bfloat16"
 
     # Map dtype string to torch dtype
