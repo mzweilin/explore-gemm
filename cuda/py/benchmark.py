@@ -33,6 +33,8 @@ Available kernels:
     FP16/BF16 only:
     - tensorcore_fp16: CUDA Tensor Core with FP16 inputs (requires -d float16)
     - tensorcore_bf16: CUDA Tensor Core with BF16 inputs (requires -d bfloat16)
+    - tensorcore_db_fp16: CUDA Tensor Core with double buffering (FP16)
+    - tensorcore_db_bf16: CUDA Tensor Core with double buffering (BF16)
 
 Note: When using -d float16 or -d bfloat16 without specifying kernels, FP32-only
 kernels are automatically filtered out. If you explicitly request FP32-only kernels
@@ -168,6 +170,30 @@ def cuda_tensorcore_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c_fp32.to(a.dtype)
 
 
+def cuda_tensorcore_db_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs and double buffering.
+
+    Double buffering overlaps memory loads with computation for better performance.
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
+def cuda_tensorcore_db_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs and double buffering.
+
+    Double buffering overlaps memory loads with computation for better performance.
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """PyTorch reference implementation."""
     return torch.matmul(a, b)
@@ -226,7 +252,9 @@ def calculate_metrics(M, N, K, avg_time_ms, element_size: int = 4):
     return tflops, bandwidth_gbps
 
 
-def create_visualization(results_df: pd.DataFrame, output_dir: Path, dtype: str = "float32"):
+def create_visualization(
+    results_df: pd.DataFrame, output_dir: Path, dtype: str = "float32"
+):
     """Create interactive Plotly visualizations."""
     logger.info("📊 Creating visualizations...")
 
@@ -235,7 +263,11 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path, dtype: str 
     RTX_4090_PEAK_BANDWIDTH_GBPS = 1008.0  # 1.008 TB/s = 1008 GB/s
 
     # Format dtype for display
-    dtype_display = dtype.upper() if dtype == "float32" else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
+    dtype_display = (
+        dtype.upper()
+        if dtype == "float32"
+        else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
+    )
 
     # Create subplots
     fig = make_subplots(
@@ -407,7 +439,9 @@ def create_visualization(results_df: pd.DataFrame, output_dir: Path, dtype: str 
     return fig
 
 
-def create_html_report(results_df: pd.DataFrame, output_dir: Path, dtype: str = "float32"):
+def create_html_report(
+    results_df: pd.DataFrame, output_dir: Path, dtype: str = "float32"
+):
     """Create HTML report with results and visualizations."""
     logger.info("📝 Creating HTML report...")
 
@@ -417,7 +451,11 @@ def create_html_report(results_df: pd.DataFrame, output_dir: Path, dtype: str = 
     gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
 
     # Format dtype for display
-    dtype_display = dtype.upper() if dtype == "float32" else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
+    dtype_display = (
+        dtype.upper()
+        if dtype == "float32"
+        else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
+    )
 
     html_content = f"""
 <!DOCTYPE html>
@@ -829,22 +867,38 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
 
         # Add Tensor Core kernels only for FP16/BF16
         if dtype == "float16":
-            all_kernels.append(
-                (
-                    "tensorcore_fp16",
-                    "CUDA Tensor Core (FP16)",
-                    cuda_tensorcore_fp16_gemm,
-                    "🚀",
-                )
+            all_kernels.extend(
+                [
+                    (
+                        "tensorcore_fp16",
+                        "CUDA Tensor Core (FP16)",
+                        cuda_tensorcore_fp16_gemm,
+                        "🚀",
+                    ),
+                    (
+                        "tensorcore_db_fp16",
+                        "CUDA Tensor Core Double Buffered (FP16)",
+                        cuda_tensorcore_db_fp16_gemm,
+                        "🔥",
+                    ),
+                ]
             )
         elif dtype == "bfloat16":
-            all_kernels.append(
-                (
-                    "tensorcore_bf16",
-                    "CUDA Tensor Core (BF16)",
-                    cuda_tensorcore_bf16_gemm,
-                    "🚀",
-                )
+            all_kernels.extend(
+                [
+                    (
+                        "tensorcore_bf16",
+                        "CUDA Tensor Core (BF16)",
+                        cuda_tensorcore_bf16_gemm,
+                        "🚀",
+                    ),
+                    (
+                        "tensorcore_db_bf16",
+                        "CUDA Tensor Core Double Buffered (BF16)",
+                        cuda_tensorcore_db_bf16_gemm,
+                        "🔥",
+                    ),
+                ]
             )
 
         # Filter kernels based on user selection
@@ -1034,20 +1088,22 @@ def main(kernels, dtype):
 
         # FP32-only kernels (don't support FP16/BF16)
         if dtype == "float32":
-            kernels_to_run.extend([
-                "naive",
-                "global_mem_coalesce",
-                "shared_mem",
-                "blocktiling_1d",
-                "blocktiling_2d",
-                "vectorize",
-            ])
+            kernels_to_run.extend(
+                [
+                    "naive",
+                    "global_mem_coalesce",
+                    "shared_mem",
+                    "blocktiling_1d",
+                    "blocktiling_2d",
+                    "vectorize",
+                ]
+            )
 
         # Add Tensor Core kernels for FP16/BF16
         if dtype == "float16":
-            kernels_to_run.append("tensorcore_fp16")
+            kernels_to_run.extend(["tensorcore_fp16", "tensorcore_db_fp16"])
         elif dtype == "bfloat16":
-            kernels_to_run.append("tensorcore_bf16")
+            kernels_to_run.extend(["tensorcore_bf16", "tensorcore_db_bf16"])
     else:
         kernels_to_run = list(kernels)
 

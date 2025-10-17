@@ -54,3 +54,12 @@ void sgemm_tensorcore_fp16(const torch::Tensor &matrix_a, const torch::Tensor &m
 
 void sgemm_tensorcore_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with Tensor Cores and Double Buffering
+// Input: FP16 or BF16, Output: FP32
+// Overlaps memory loads with computation for better performance
+void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                           torch::Tensor &output_matrix, float alpha, float beta);
+
+void sgemm_tensorcore_double_buffered_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                           torch::Tensor &output_matrix, float alpha, float beta);

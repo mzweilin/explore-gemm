@@ -23,6 +23,8 @@ Available kernels:
     - warptiling: CUDA GEMM with warp-level tiling (most optimized FP32)
     - tensorcore_fp16: CUDA Tensor Core with FP16 inputs
     - tensorcore_bf16: CUDA Tensor Core with BF16 inputs
+    - tensorcore_db_fp16: CUDA Tensor Core with double buffering (FP16)
+    - tensorcore_db_bf16: CUDA Tensor Core with double buffering (BF16)
 """
 
 import os
@@ -119,6 +121,20 @@ def run_tensorcore_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor
     return c
 
 
+def run_tensorcore_db_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run Tensor Core CUDA GEMM kernel with FP16 inputs and double buffering."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def run_tensorcore_db_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run Tensor Core CUDA GEMM kernel with BF16 inputs and double buffering."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
 def run_kernel_n_times(
     kernel_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     a: torch.Tensor,
@@ -151,6 +167,8 @@ def run_kernel_n_times(
             "warptiling",
             "tensorcore_fp16",
             "tensorcore_bf16",
+            "tensorcore_db_fp16",
+            "tensorcore_db_bf16",
         ],
         case_sensitive=False,
     ),
@@ -206,17 +224,19 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "warptiling": run_warptiling_kernel,
         "tensorcore_fp16": run_tensorcore_fp16_kernel,
         "tensorcore_bf16": run_tensorcore_bf16_kernel,
+        "tensorcore_db_fp16": run_tensorcore_db_fp16_kernel,
+        "tensorcore_db_bf16": run_tensorcore_db_bf16_kernel,
     }
 
     # Auto-detect required dtype for Tensor Core kernels if not specified
-    if kernel == "tensorcore_fp16" and dtype == "float32":
+    if kernel in ["tensorcore_fp16", "tensorcore_db_fp16"] and dtype == "float32":
         logger.warning(
-            "⚠️  tensorcore_fp16 requires float16 dtype, auto-switching to float16"
+            f"⚠️  {kernel} requires float16 dtype, auto-switching to float16"
         )
         dtype = "float16"
-    elif kernel == "tensorcore_bf16" and dtype == "float32":
+    elif kernel in ["tensorcore_bf16", "tensorcore_db_bf16"] and dtype == "float32":
         logger.warning(
-            "⚠️  tensorcore_bf16 requires bfloat16 dtype, auto-switching to bfloat16"
+            f"⚠️  {kernel} requires bfloat16 dtype, auto-switching to bfloat16"
         )
         dtype = "bfloat16"
 
