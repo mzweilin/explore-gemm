@@ -25,6 +25,8 @@ Available kernels:
     - tensorcore_bf16: CUDA Tensor Core with BF16 inputs
     - tensorcore_db_fp16: CUDA Tensor Core with double buffering (FP16)
     - tensorcore_db_bf16: CUDA Tensor Core with double buffering (BF16)
+    - cutlass_fp16: CUTLASS library GEMM with FP16 inputs
+    - cutlass_bf16: CUTLASS library GEMM with BF16 inputs
 """
 
 import os
@@ -135,6 +137,20 @@ def run_tensorcore_db_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Ten
     return c
 
 
+def run_cutlass_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run CUTLASS GEMM kernel with FP16 inputs."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_cutlass_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def run_cutlass_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run CUTLASS GEMM kernel with BF16 inputs."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_cutlass_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
 def run_kernel_n_times(
     kernel_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     a: torch.Tensor,
@@ -169,6 +185,8 @@ def run_kernel_n_times(
             "tensorcore_bf16",
             "tensorcore_db_fp16",
             "tensorcore_db_bf16",
+            "cutlass_fp16",
+            "cutlass_bf16",
         ],
         case_sensitive=False,
     ),
@@ -226,15 +244,17 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "tensorcore_bf16": run_tensorcore_bf16_kernel,
         "tensorcore_db_fp16": run_tensorcore_db_fp16_kernel,
         "tensorcore_db_bf16": run_tensorcore_db_bf16_kernel,
+        "cutlass_fp16": run_cutlass_fp16_kernel,
+        "cutlass_bf16": run_cutlass_bf16_kernel,
     }
 
-    # Auto-detect required dtype for Tensor Core kernels if not specified
-    if kernel in ["tensorcore_fp16", "tensorcore_db_fp16"] and dtype == "float32":
+    # Auto-detect required dtype for Tensor Core and CUTLASS kernels if not specified
+    if kernel in ["tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"] and dtype == "float32":
         logger.warning(
             f"⚠️  {kernel} requires float16 dtype, auto-switching to float16"
         )
         dtype = "float16"
-    elif kernel in ["tensorcore_bf16", "tensorcore_db_bf16"] and dtype == "float32":
+    elif kernel in ["tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"] and dtype == "float32":
         logger.warning(
             f"⚠️  {kernel} requires bfloat16 dtype, auto-switching to bfloat16"
         )

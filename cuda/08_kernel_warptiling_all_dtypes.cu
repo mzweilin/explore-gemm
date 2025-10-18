@@ -1,11 +1,11 @@
-// Warptiling GEMM with Multi-Dtype Support (FP32, FP16, BF16)
-// This kernel extends the warptiling approach to support multiple data types
-// for inputs (A, B) while keeping the output (C) as FP32 for numerical stability.
+// Warptiling GEMM with FP16/BF16 Support
+// This kernel extends the warptiling approach to support 16-bit data types.
 //
 // Key features:
-// - Template parameter for input dtype: float, half, or nv_bfloat16
-// - Output always FP32 for accumulation precision
-// - Vectorized loads with dtype-specific vector types
+// - Template parameter for input dtype: half or nv_bfloat16 (FP32 uses the base warptiling kernel)
+// - Output matches input dtype (standard PyTorch behavior)
+// - Internal accumulation uses FP32 for numerical precision, converted back to input dtype on store
+// - Vectorized loads with dtype-specific vector types (half2/bfloat162)
 // - Same warp-level tiling strategy as 07_kernel_warptiling.cu
 //
 // Hierarchy:
@@ -32,15 +32,10 @@ constexpr int WARPSIZE = 32;
 
 // ==================== TYPE TRAITS FOR VECTORIZATION ====================
 
-// Helper to get the vectorized type for each input type
+// Helper to get the vectorized type for 16-bit input types
 template <typename T>
 struct VecType
 {
-};
-template <>
-struct VecType<float>
-{
-    using type = float4;
 };
 template <>
 struct VecType<half>
@@ -53,13 +48,9 @@ struct VecType<nv_bfloat16>
     using type = nv_bfloat162;
 }; // Load 2 bf16s at a time
 
-// Vector size in elements
+// Vector size in elements (always 2 for 16-bit types)
 template <typename T>
-constexpr int vec_size() { return 4; }
-template <>
-constexpr int vec_size<half>() { return 2; }
-template <>
-constexpr int vec_size<nv_bfloat16>() { return 2; }
+constexpr int vec_size() { return 2; }
 
 // Type conversion helpers for 16-bit types
 // (work even when conversion operators are disabled by PyTorch macros)
@@ -72,9 +63,8 @@ __device__ __forceinline__ nv_bfloat16 from_float(float x, nv_bfloat16) { return
 
 // ==================== HELPER FUNCTIONS ====================
 
-// Load data from global memory to shared memory with dtype-specific vectorized access
-// For FP32: use float4 (4 elements)
-// For FP16/BF16: use half2/bfloat162 (2 elements)
+// Load data from global memory to shared memory with vectorized access for 16-bit types
+// Uses half2/bfloat162 (2 elements at a time)
 template <typename InputType, const int BM, const int BN, const int BK,
           const int row_stride_a, const int row_stride_b>
 __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
@@ -83,7 +73,7 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
                                int inner_row_a, int inner_col_a,
                                int inner_row_b, int inner_col_b)
 {
-    constexpr int VEC_SIZE = vec_size<InputType>();
+    constexpr int VEC_SIZE = 2; // Always 2 for half2/bfloat162
     using VecT = typename VecType<InputType>::type;
 
     // Load tile_a with vectorized loads and transpose
@@ -92,21 +82,9 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
         const VecT tmp_a = reinterpret_cast<const VecT *>(
             &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * VEC_SIZE])[0];
 
-        // Transpose while storing to shared memory
-        if constexpr (VEC_SIZE == 4)
-        {
-            // FP32 case
-            tile_a[(inner_col_a * 4 + 0) * BM + inner_row_a + offset] = tmp_a.x;
-            tile_a[(inner_col_a * 4 + 1) * BM + inner_row_a + offset] = tmp_a.y;
-            tile_a[(inner_col_a * 4 + 2) * BM + inner_row_a + offset] = tmp_a.z;
-            tile_a[(inner_col_a * 4 + 3) * BM + inner_row_a + offset] = tmp_a.w;
-        }
-        else
-        {
-            // FP16/BF16 case (half2 or bfloat162)
-            tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
-            tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
-        }
+        // Transpose while storing to shared memory (half2/bfloat162)
+        tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
+        tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
     }
 
     // Load tile_b with vectorized loads
@@ -355,7 +333,6 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
     TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
     TORCH_CHECK(matrix_b.device().is_cuda(), "Matrix B must be on CUDA device");
     TORCH_CHECK(output_matrix.device().is_cuda(), "Matrix C must be on CUDA device");
-    // Output dtype must match input dtype (like PyTorch behavior)
     TORCH_CHECK(output_matrix.dtype() == matrix_a.dtype(),
                 "Matrix C must have same dtype as input matrices");
     TORCH_CHECK(matrix_a.dim() == 2, "Matrix A must be 2D");
@@ -387,7 +364,6 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
     // Get raw device pointers
     const InputType *d_matrix_a = reinterpret_cast<const InputType *>(matrix_a.data_ptr());
     const InputType *d_matrix_b = reinterpret_cast<const InputType *>(matrix_b.data_ptr());
-    // Output is same dtype as input (like PyTorch)
     InputType *d_output_matrix = reinterpret_cast<InputType *>(output_matrix.data_ptr());
 
     // Configure kernel launch
@@ -403,22 +379,7 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
 
 // ==================== PUBLIC API FUNCTIONS ====================
 
-// FP32 version - delegate to the original FP32-only warptiling kernel
-// (declared in 07_kernel_warptiling.cu)
-extern void sgemm_warptiling_default(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                                     torch::Tensor &output_matrix, float alpha, float beta);
-
-void sgemm_warptiling_fp32(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                           torch::Tensor &output_matrix, float alpha, float beta)
-{
-    TORCH_CHECK(matrix_a.dtype() == torch::kFloat32, "Matrix A must be float32");
-    TORCH_CHECK(matrix_b.dtype() == torch::kFloat32, "Matrix B must be float32");
-
-    // Delegate to the original FP32 warptiling kernel (no conversion overhead)
-    sgemm_warptiling_default(matrix_a, matrix_b, output_matrix, alpha, beta);
-}
-
-// FP16 version - use the multi-dtype kernel (16-bit only)
+// FP16 version
 void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta)
 {
@@ -429,7 +390,7 @@ void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &m
         matrix_a, matrix_b, output_matrix, alpha, beta);
 }
 
-// BF16 version - use the multi-dtype kernel (16-bit only)
+// BF16 version
 void sgemm_warptiling_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta)
 {

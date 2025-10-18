@@ -219,6 +219,58 @@ int main() {
             std::cout << "\r";
             print_result("Warptiling (128,128,16,64,32,2,8,4,256)", warptiling_config2, baseline_result);
 
+            // Benchmark FP16 kernels
+            std::cout << "\n  --- FP16 Precision Benchmarks ---\n";
+
+            auto a_fp16 = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
+            auto b_fp16 = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
+
+            // Benchmark PyTorch FP16
+            std::cout << "  🔵 Benchmarking PyTorch FP16..." << std::flush;
+            auto pytorch_fp16_result = benchmark_kernel(
+                [](const torch::Tensor &a, const torch::Tensor &b, torch::Tensor &c, float alpha, float beta) {
+                    c = torch::matmul(a, b);
+                }, a_fp16, b_fp16, config);
+            std::cout << "\r";
+            print_result("PyTorch FP16", pytorch_fp16_result, baseline_result);
+
+            // Benchmark CUTLASS FP16
+            std::cout << "  🚀 Benchmarking CUTLASS FP16..." << std::flush;
+            auto cutlass_fp16_result = benchmark_kernel(
+                [](const torch::Tensor &a, const torch::Tensor &b, torch::Tensor &c, float alpha, float beta) {
+                    auto c_fp32 = torch::zeros({a.size(0), b.size(1)}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+                    sgemm_cutlass_fp16(a, b, c_fp32, alpha, beta);
+                    c = c_fp32.to(torch::kFloat16);
+                }, a_fp16, b_fp16, config);
+            std::cout << "\r";
+            print_result("CUTLASS FP16", cutlass_fp16_result, baseline_result);
+
+            // Benchmark BF16 kernels
+            std::cout << "\n  --- BF16 Precision Benchmarks ---\n";
+
+            auto a_bf16 = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
+            auto b_bf16 = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
+
+            // Benchmark PyTorch BF16
+            std::cout << "  🔵 Benchmarking PyTorch BF16..." << std::flush;
+            auto pytorch_bf16_result = benchmark_kernel(
+                [](const torch::Tensor &a, const torch::Tensor &b, torch::Tensor &c, float alpha, float beta) {
+                    c = torch::matmul(a, b);
+                }, a_bf16, b_bf16, config);
+            std::cout << "\r";
+            print_result("PyTorch BF16", pytorch_bf16_result, baseline_result);
+
+            // Benchmark CUTLASS BF16
+            std::cout << "  🚀 Benchmarking CUTLASS BF16..." << std::flush;
+            auto cutlass_bf16_result = benchmark_kernel(
+                [](const torch::Tensor &a, const torch::Tensor &b, torch::Tensor &c, float alpha, float beta) {
+                    auto c_fp32 = torch::zeros({a.size(0), b.size(1)}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+                    sgemm_cutlass_bf16(a, b, c_fp32, alpha, beta);
+                    c = c_fp32.to(torch::kBFloat16);
+                }, a_bf16, b_bf16, config);
+            std::cout << "\r";
+            print_result("CUTLASS BF16", cutlass_bf16_result, baseline_result);
+
             // Verify correctness of default configuration
             auto c_pytorch = torch::matmul(a, b);
             auto c_warptiling = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
@@ -227,6 +279,32 @@ int main() {
 
             std::cout << "\n  ✅ Correctness check: max_diff = " << diff;
             if (diff < 1e-3f) {
+                std::cout << " (PASSED)\n";
+            } else {
+                std::cout << " (WARNING: High error!)\n";
+            }
+
+            // Verify CUTLASS FP16
+            auto c_pytorch_fp16 = torch::matmul(a_fp16, b_fp16).to(torch::kFloat32);
+            auto c_cutlass_fp16 = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+            sgemm_cutlass_fp16(a_fp16, b_fp16, c_cutlass_fp16, 1.0f, 0.0f);
+            float diff_fp16 = max_diff(c_pytorch_fp16, c_cutlass_fp16);
+
+            std::cout << "  ✅ CUTLASS FP16 check: max_diff = " << diff_fp16;
+            if (diff_fp16 < 1e-2f) {
+                std::cout << " (PASSED)\n";
+            } else {
+                std::cout << " (WARNING: High error!)\n";
+            }
+
+            // Verify CUTLASS BF16
+            auto c_pytorch_bf16 = torch::matmul(a_bf16, b_bf16).to(torch::kFloat32);
+            auto c_cutlass_bf16 = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+            sgemm_cutlass_bf16(a_bf16, b_bf16, c_cutlass_bf16, 1.0f, 0.0f);
+            float diff_bf16 = max_diff(c_pytorch_bf16, c_cutlass_bf16);
+
+            std::cout << "  ✅ CUTLASS BF16 check: max_diff = " << diff_bf16;
+            if (diff_bf16 < 1e-2f) {
                 std::cout << " (PASSED)\n";
             } else {
                 std::cout << " (WARNING: High error!)\n";

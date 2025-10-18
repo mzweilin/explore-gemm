@@ -33,14 +33,12 @@ void sgemm_warptiling(const torch::Tensor &matrix_a, const torch::Tensor &matrix
                       torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM warptiling with default parameters (for Python binding)
+// FP32 version - uses the original warptiling kernel
 void sgemm_warptiling_default(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                               torch::Tensor &output_matrix, float alpha, float beta);
 
-// SGEMM warptiling with multi-dtype support
-// Input/output use same dtype (FP32, FP16, or BF16), like PyTorch behavior
-void sgemm_warptiling_fp32(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                           torch::Tensor &output_matrix, float alpha, float beta);
-
+// SGEMM warptiling with multi-dtype support (FP16, BF16)
+// Input/output use same dtype, like PyTorch behavior
 void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta);
 
@@ -63,3 +61,12 @@ void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const 
 
 void sgemm_tensorcore_double_buffered_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                            torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with CUTLASS library
+// Input: FP16 or BF16, Output: FP32
+// Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations
+void sgemm_cutlass_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                        torch::Tensor &output_matrix, float alpha, float beta);
+
+void sgemm_cutlass_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                        torch::Tensor &output_matrix, float alpha, float beta);

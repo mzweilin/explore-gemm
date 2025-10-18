@@ -6,6 +6,7 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/third-party/libtorch/include",
                 "${workspaceFolder}/third-party/libtorch/include/torch/csrc/api/include",
+                "${workspaceFolder}/third-party/cutlass/include",
                 "${workspaceFolder}/cuda",
                 "/usr/local/cuda-12.8/include"
             ],

@@ -35,6 +35,8 @@ Available kernels:
     - tensorcore_bf16: CUDA Tensor Core with BF16 inputs (requires -d bfloat16)
     - tensorcore_db_fp16: CUDA Tensor Core with double buffering (FP16)
     - tensorcore_db_bf16: CUDA Tensor Core with double buffering (BF16)
+    - cutlass_fp16: CUTLASS library GEMM with FP16 inputs (requires -d float16)
+    - cutlass_bf16: CUTLASS library GEMM with BF16 inputs (requires -d bfloat16)
 
 Note: When using -d float16 or -d bfloat16 without specifying kernels, FP32-only
 kernels are automatically filtered out. If you explicitly request FP32-only kernels
@@ -131,7 +133,7 @@ def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
     # Dispatch to appropriate warptiling kernel based on input dtype
     if a.dtype == torch.float32:
-        cuda_kernels.sgemm_warptiling_fp32(a, b, c, 1.0, 0.0)  # type: ignore
+        cuda_kernels.sgemm_warptiling_default(a, b, c, 1.0, 0.0)  # type: ignore
     elif a.dtype == torch.float16:
         cuda_kernels.sgemm_warptiling_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     elif a.dtype == torch.bfloat16:
@@ -190,6 +192,30 @@ def cuda_tensorcore_db_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tens
     # Tensor Cores output FP32 for precision
     c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
+def cuda_cutlass_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for CUTLASS GEMM kernel with FP16 inputs.
+
+    Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations.
+    """
+    # CUTLASS outputs FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_cutlass_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
+def cuda_cutlass_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for CUTLASS GEMM kernel with BF16 inputs.
+
+    Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations.
+    """
+    # CUTLASS outputs FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_cutlass_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
 
@@ -299,6 +325,10 @@ def create_visualization(
         "CUDA Warptiling": "#FEC200",
         "CUDA Tensor Core (FP16)": "#B6E880",
         "CUDA Tensor Core (BF16)": "#8DD3C7",
+        "CUDA Tensor Core Double Buffered (FP16)": "#A8D08D",
+        "CUDA Tensor Core Double Buffered (BF16)": "#7FB3D5",
+        "CUTLASS (FP16)": "#FF9999",
+        "CUTLASS (BF16)": "#FFB366",
     }
 
     # Plot 1: TFLOPS
@@ -629,6 +659,11 @@ def create_html_report(
             color: #00695c;
         }}
 
+        .badge-cutlass {{
+            background: #ffe0b2;
+            color: #e65100;
+        }}
+
         .speedup {{
             font-weight: bold;
         }}
@@ -715,6 +750,8 @@ def create_html_report(
             kernel_class = "vectorize"
         elif "Warptiling" in row["kernel"]:
             kernel_class = "warptiling"
+        elif "CUTLASS" in row["kernel"]:
+            kernel_class = "cutlass"
         elif "Tensor Core" in row["kernel"]:
             kernel_class = "tensorcore"
         else:
@@ -881,6 +918,12 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         cuda_tensorcore_db_fp16_gemm,
                         "🔥",
                     ),
+                    (
+                        "cutlass_fp16",
+                        "CUTLASS (FP16)",
+                        cuda_cutlass_fp16_gemm,
+                        "⚡",
+                    ),
                 ]
             )
         elif dtype == "bfloat16":
@@ -897,6 +940,12 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         "CUDA Tensor Core Double Buffered (BF16)",
                         cuda_tensorcore_db_bf16_gemm,
                         "🔥",
+                    ),
+                    (
+                        "cutlass_bf16",
+                        "CUTLASS (BF16)",
+                        cuda_cutlass_bf16_gemm,
+                        "⚡",
                     ),
                 ]
             )
@@ -1046,6 +1095,10 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             "warptiling",
             "tensorcore_fp16",
             "tensorcore_bf16",
+            "tensorcore_db_fp16",
+            "tensorcore_db_bf16",
+            "cutlass_fp16",
+            "cutlass_bf16",
         ],
         case_sensitive=False,
     ),
@@ -1099,11 +1152,11 @@ def main(kernels, dtype):
                 ]
             )
 
-        # Add Tensor Core kernels for FP16/BF16
+        # Add Tensor Core and CUTLASS kernels for FP16/BF16
         if dtype == "float16":
-            kernels_to_run.extend(["tensorcore_fp16", "tensorcore_db_fp16"])
+            kernels_to_run.extend(["tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"])
         elif dtype == "bfloat16":
-            kernels_to_run.extend(["tensorcore_bf16", "tensorcore_db_bf16"])
+            kernels_to_run.extend(["tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"])
     else:
         kernels_to_run = list(kernels)
 

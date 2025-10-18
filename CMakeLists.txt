@@ -53,6 +53,21 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 include_directories(${CMAKE_SOURCE_DIR})
 include_directories(${CMAKE_SOURCE_DIR}/third-party)
 
+# CUTLASS library configuration
+# Try to find CUTLASS in multiple locations
+set(CUTLASS_AVAILABLE FALSE)
+
+# Location 1: Local third-party directory (preferred - should be CUTLASS 3.x)
+if(EXISTS ${CMAKE_SOURCE_DIR}/third-party/cutlass/include)
+    set(CUTLASS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/third-party/cutlass/include)
+    set(CUTLASS_AVAILABLE TRUE)
+    message(STATUS "CUTLASS found at ${CUTLASS_INCLUDE_DIR} (using local installation)")
+endif()
+
+if(CUTLASS_AVAILABLE)
+    include_directories(${CUTLASS_INCLUDE_DIR})
+endif()
+
 # Tests
 add_executable(test_gemm_naive ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_naive.cpp ${gpu_source_files})
 target_link_libraries(test_gemm_naive "${TORCH_LIBRARIES}")
@@ -84,6 +99,12 @@ target_link_libraries(test_gemm_tensorcore "${TORCH_LIBRARIES}")
 add_executable(test_gemm_tensorcore_double_buffered ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_double_buffered.cpp ${gpu_source_files})
 target_link_libraries(test_gemm_tensorcore_double_buffered "${TORCH_LIBRARIES}")
 
+# CUTLASS test (only build if CUTLASS is available)
+if(CUTLASS_AVAILABLE)
+    add_executable(test_gemm_cutlass ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass.cpp ${gpu_source_files})
+    target_link_libraries(test_gemm_cutlass "${TORCH_LIBRARIES}")
+endif()
+
 add_executable(autotune_kernels ${CMAKE_SOURCE_DIR}/cuda/autotune_kernels.cpp ${gpu_source_files})
 target_link_libraries(autotune_kernels "${TORCH_LIBRARIES}")
 
@@ -99,6 +120,10 @@ add_test(NAME test_gemm_warptiling COMMAND test_gemm_warptiling)
 add_test(NAME test_gemm_warptiling_all_dtypes COMMAND test_gemm_warptiling_all_dtypes)
 add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
 add_test(NAME test_gemm_tensorcore_double_buffered COMMAND test_gemm_tensorcore_double_buffered)
+
+if(CUTLASS_AVAILABLE)
+    add_test(NAME test_gemm_cutlass COMMAND test_gemm_cutlass)
+endif()
 
 # NOTES
 # Build with: cmake -B build

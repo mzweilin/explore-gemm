@@ -57,6 +57,7 @@ def create_cuda_extension(verbose: bool = True):
     warptiling_multidtype_cu = file_dir / "08_kernel_warptiling_all_dtypes.cu"
     tensorcore_cu = file_dir / "09_kernel_tensorcore.cu"
     tensorcore_double_buffered_cu = file_dir / "10_kernel_tensorcore_double_buffered.cu"
+    cutlass_cu = file_dir / "11_kernel_cutlass.cu"
     header_file = file_dir / "gemm_kernels.cuh"
 
     if verbose:
@@ -70,7 +71,10 @@ def create_cuda_extension(verbose: bool = True):
         logger.info(f"   • Warptiling (FP32): {warptiling_cu}")
         logger.info(f"   • Warptiling (Multi-Dtype): {warptiling_multidtype_cu}")
         logger.info(f"   • Tensor Core: {tensorcore_cu}")
-        logger.info(f"   • Tensor Core Double Buffered: {tensorcore_double_buffered_cu}")
+        logger.info(
+            f"   • Tensor Core Double Buffered: {tensorcore_double_buffered_cu}"
+        )
+        logger.info(f"   • CUTLASS: {cutlass_cu}")
         logger.info(f"   • Header: {header_file}")
 
     # Read all source files
@@ -81,9 +85,14 @@ def create_cuda_extension(verbose: bool = True):
     blocktiling_2d_code, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
     vectorize_code, _ = get_cuda_code(str(vectorize_cu), str(header_file))
     warptiling_code, _ = get_cuda_code(str(warptiling_cu), str(header_file))
-    warptiling_multidtype_code, _ = get_cuda_code(str(warptiling_multidtype_cu), str(header_file))
+    warptiling_multidtype_code, _ = get_cuda_code(
+        str(warptiling_multidtype_cu), str(header_file)
+    )
     tensorcore_code, _ = get_cuda_code(str(tensorcore_cu), str(header_file))
-    tensorcore_double_buffered_code, header_code = get_cuda_code(str(tensorcore_double_buffered_cu), str(header_file))
+    tensorcore_double_buffered_code, _ = get_cuda_code(
+        str(tensorcore_double_buffered_cu), str(header_file)
+    )
+    cutlass_code, header_code = get_cuda_code(str(cutlass_cu), str(header_file))
 
     # Combine CUDA sources
     # Add preprocessor directives to enable half-precision and WMMA for Tensor Cores
@@ -108,6 +117,16 @@ def create_cuda_extension(verbose: bool = True):
 #include <cuda_bf16.h>
 #include <mma.h>
 
+// Include CUTLASS headers
+#include "cutlass/cutlass.h"
+#include "cutlass/gemm/device/gemm.h"
+#include "cutlass/epilogue/thread/linear_combination.h"
+#include "cutlass/layout/matrix.h"
+#include "cutlass/numeric_types.h"
+
+#include <iostream>
+#include <type_traits>
+
 """
 
     combined_cuda_code = (
@@ -131,6 +150,8 @@ def create_cuda_extension(verbose: bool = True):
         + tensorcore_code
         + "\n"
         + tensorcore_double_buffered_code
+        + "\n"
+        + cutlass_code
     )
 
     # Create build directory
@@ -139,6 +160,22 @@ def create_cuda_extension(verbose: bool = True):
 
     if verbose:
         logger.info(f"🔨 Build directory: {build_dir}")
+
+    # Determine CUTLASS include path from third-party directory
+    cutlass_include_path = file_dir.parent / "third-party" / "cutlass" / "include"
+
+    if cutlass_include_path.exists():
+        if verbose:
+            logger.info(f"📦 Found CUTLASS headers at: {cutlass_include_path}")
+    else:
+        if verbose:
+            logger.warning(
+                f"⚠️  CUTLASS headers not found at {cutlass_include_path}. CUTLASS kernels may fail to compile."
+            )
+
+    # Prepare extra compiler flags
+    extra_cflags = ["-O3", "-std=c++17"]
+    extra_include_paths = [str(cutlass_include_path)]
 
     # Load the extension
     # Note: PyTorch adds -D__CUDA_NO_HALF_* macros by default, but we handle
@@ -155,17 +192,20 @@ def create_cuda_extension(verbose: bool = True):
             "sgemm_blocktiling_2d",
             "sgemm_vectorize",
             "sgemm_warptiling_default",
-            "sgemm_warptiling_fp32",
             "sgemm_warptiling_fp16",
             "sgemm_warptiling_bf16",
             "sgemm_tensorcore_fp16",
             "sgemm_tensorcore_bf16",
             "sgemm_tensorcore_double_buffered_fp16",
             "sgemm_tensorcore_double_buffered_bf16",
+            "sgemm_cutlass_fp16",
+            "sgemm_cutlass_bf16",
         ],
         with_cuda=True,
         verbose=verbose,
-        extra_cuda_cflags=["-O3", "-std=c++17"],
+        extra_cflags=extra_cflags,
+        extra_cuda_cflags=extra_cflags,
+        extra_include_paths=extra_include_paths,
         build_directory=str(build_dir),
     )
 
