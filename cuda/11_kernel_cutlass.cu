@@ -14,6 +14,7 @@
 // - Warp: 64 x 64 x 32
 // - Instruction: 16 x 8 x 16 (Tensor Core)
 // - Pipeline stages: 2 (double buffering)
+// - No caching or swizzling for simplicity
 
 #include <torch/torch.h>
 #include <cuda_runtime.h>
@@ -26,11 +27,6 @@
 #include "cutlass/gemm/device/gemm.h"
 #include "cutlass/epilogue/thread/linear_combination.h"
 #include "cutlass/gemm/gemm.h"
-
-#include <mutex>
-#include <map>
-#include <tuple>
-#include <memory>
 
 // -----------------------------------------------------------------------------
 // Common configuration
@@ -73,7 +69,6 @@ struct CutlassGemmConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
-        // Cant use sm89: https://github.com/NVIDIA/cutlass/issues/1181
         cutlass::arch::Sm80,
         ThreadblockShape,
         WarpShape,
@@ -86,41 +81,7 @@ using FP16Config = CutlassGemmConfig<cutlass::half_t>;
 using BF16Config = CutlassGemmConfig<cutlass::bfloat16_t>;
 
 // -----------------------------------------------------------------------------
-// Templated GEMM operator cache
-// -----------------------------------------------------------------------------
-
-template <typename GemmType>
-class GemmCache
-{
-private:
-    using Key = std::tuple<int, int, int, int, int, int>;
-    std::mutex mutex_;
-    std::map<Key, std::shared_ptr<GemmType>> cache_;
-
-public:
-    std::shared_ptr<GemmType> get_or_create(int M, int N, int K, int lda, int ldb, int ldc)
-    {
-        Key key = std::make_tuple(M, N, K, lda, ldb, ldc);
-        std::lock_guard<std::mutex> lock(mutex_);
-
-        auto it = cache_.find(key);
-        if (it != cache_.end())
-        {
-            return it->second;
-        }
-
-        auto gemm_ptr = std::make_shared<GemmType>();
-        cache_[key] = gemm_ptr;
-        return gemm_ptr;
-    }
-};
-
-// Global cache instances
-static GemmCache<FP16Config::Gemm> g_fp16_cache;
-static GemmCache<BF16Config::Gemm> g_bf16_cache;
-
-// -----------------------------------------------------------------------------
-// Templated GEMM launcher
+// Templated GEMM launcher (no caching)
 // -----------------------------------------------------------------------------
 
 template <typename Config>
@@ -130,14 +91,13 @@ cudaError_t cutlass_gemm_launch(
     const typename Config::ElementInput *d_B, int ldb,
     ElementOutput *d_C, int ldc,
     float alpha, float beta,
-    GemmCache<typename Config::Gemm> &cache,
     cudaStream_t stream = 0)
 {
     if (M == 0 || N == 0 || K == 0)
         return cudaSuccess;
 
-    auto gemm_ptr = cache.get_or_create(M, N, K, lda, ldb, ldc);
-    typename Config::Gemm &gemm_op = *gemm_ptr;
+    // Create GEMM operator on each call (no caching)
+    typename Config::Gemm gemm_op;
 
     typename Config::Gemm::Arguments args(
         {M, N, K},
@@ -172,7 +132,6 @@ void cutlass_gemm_pytorch_wrapper(
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix,
     float alpha, float beta,
-    GemmCache<typename Config::Gemm> &cache,
     const char *dtype_name,
     at::ScalarType expected_type)
 {
@@ -215,7 +174,7 @@ void cutlass_gemm_pytorch_wrapper(
 
     // Launch CUTLASS GEMM
     cudaError_t err = cutlass_gemm_launch<Config>(
-        M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, cache, stream);
+        M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
 
     TORCH_CHECK(err == cudaSuccess,
                 "CUTLASS GEMM (", dtype_name, ") failed: ", cudaGetErrorString(err));
@@ -231,7 +190,7 @@ void sgemm_cutlass_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matr
 {
     cutlass_gemm_pytorch_wrapper<FP16Config, at::Half>(
         matrix_a, matrix_b, output_matrix, alpha, beta,
-        g_fp16_cache, "float16", at::kHalf);
+        "float16", at::kHalf);
 }
 
 // BF16 launcher
@@ -240,5 +199,5 @@ void sgemm_cutlass_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matr
 {
     cutlass_gemm_pytorch_wrapper<BF16Config, at::BFloat16>(
         matrix_a, matrix_b, output_matrix, alpha, beta,
-        g_bf16_cache, "bfloat16", at::kBFloat16);
+        "bfloat16", at::kBFloat16);
 }
