@@ -9,23 +9,29 @@
 //  - CUDA toolkit with Tensor Core support (SM >= 75)
 //  - PyTorch for tensor management
 //
-// Configuration matches the double-buffered tensor core kernel:
-// - Threadblock: 256 x 128 x 16 (M x N x K)
-// - Warp: 64 x 64 x 16
-// - Instruction: 16 x 16 x 16 (Tensor Core)
+// Configuration:
+// - Threadblock: 128 x 128 x 32 (M x N x K)
+// - Warp: 64 x 64 x 32
+// - Instruction: 16 x 8 x 16 (Tensor Core)
+// - Pipeline stages: 2 (double buffering)
 
 #include <torch/torch.h>
 #include <cuda_runtime.h>
 #include "gemm_kernels.cuh"
 
 #include "cutlass/cutlass.h"
+#include "cutlass/arch/arch.h"
+#include "cutlass/arch/wmma.h"
+#include "cutlass/numeric_types.h"
+#include "cutlass/layout/matrix.h"
 #include "cutlass/gemm/device/gemm.h"
 #include "cutlass/epilogue/thread/linear_combination.h"
-#include "cutlass/layout/matrix.h"
-#include "cutlass/numeric_types.h"
+#include "cutlass/gemm/gemm.h"
 
-#include <iostream>
-#include <type_traits>
+#include <mutex>
+#include <map>
+#include <tuple>
+#include <memory>
 
 // Convenience macro for ceiling division
 #define CEIL_DIV(m, n) (((m) + (n) - 1) / (n))
@@ -34,81 +40,187 @@
 // Type aliases & configuration
 // -----------------------------------------------------------------------------
 
-// Output element type (always float32 for accumulation and output)
-using ElementOutput = float;
-using ElementAccumulator = float;
+using ElementAccumulator = float;       // Accumulate in FP32
+using ElementCompute = float;           // Epilogue compute type
 
-// Let CUTLASS choose optimal tile shapes based on data types
-// These will be configured automatically per instantiation
+using LayoutA = cutlass::layout::RowMajor;
+using LayoutB = cutlass::layout::RowMajor;
+using LayoutC = cutlass::layout::RowMajor;
+
+// Threadblock, warp, and instruction shapes
+using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 32>;
+using WarpShape = cutlass::gemm::GemmShape<64, 64, 32>;
+using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
 
 // -----------------------------------------------------------------------------
-// Generic templated CUTLASS GEMM launcher
+// FP16 GEMM Configuration
 // -----------------------------------------------------------------------------
-template <
-    typename ElementA,
-    typename ElementB,
-    typename ElementC = float,
-    typename LayoutA = cutlass::layout::RowMajor,
-    typename LayoutB = cutlass::layout::RowMajor,
-    typename LayoutCLayout = cutlass::layout::RowMajor>
-cudaError_t cutlass_gemm_launch(
+using ElementA_FP16 = cutlass::half_t;
+using ElementB_FP16 = cutlass::half_t;
+using ElementC_FP16 = float;  // Output in FP32
+
+using EpilogueOp_FP16 = cutlass::epilogue::thread::LinearCombination<
+    ElementC_FP16,
+    128 / cutlass::sizeof_bits<ElementC_FP16>::value
+>;
+
+using Gemm_FP16 = cutlass::gemm::device::Gemm<
+    ElementA_FP16,
+    LayoutA,
+    ElementB_FP16,
+    LayoutB,
+    ElementC_FP16,
+    LayoutC,
+    ElementAccumulator,
+    cutlass::arch::OpClassTensorOp,
+    cutlass::arch::Sm80,
+    ThreadblockShape,
+    WarpShape,
+    InstructionShape,
+    EpilogueOp_FP16,
+    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+    2  // Pipeline stages (double buffering)
+>;
+
+// Cache for FP16 GEMM operators
+using GemmKey = std::tuple<int, int, int, int, int, int>;
+static std::mutex g_gemm_fp16_cache_mutex;
+static std::map<GemmKey, std::shared_ptr<Gemm_FP16>> g_gemm_fp16_cache;
+
+static std::shared_ptr<Gemm_FP16> get_or_create_gemm_fp16(int M, int N, int K, int lda, int ldb, int ldc)
+{
+    GemmKey key = std::make_tuple(M, N, K, lda, ldb, ldc);
+    std::lock_guard<std::mutex> lock(g_gemm_fp16_cache_mutex);
+    auto it = g_gemm_fp16_cache.find(key);
+    if (it != g_gemm_fp16_cache.end()) {
+        return it->second;
+    }
+    auto gemm_ptr = std::make_shared<Gemm_FP16>();
+    g_gemm_fp16_cache[key] = gemm_ptr;
+    return gemm_ptr;
+}
+
+cudaError_t cutlass_gemm_fp16_launch(
     int M, int N, int K,
-    const ElementA *d_A, // A: M x K (row-major)
-    const ElementB *d_B, // B: K x N (row-major)
-    ElementC *d_C,       // C: M x N (row-major, output)
+    const ElementA_FP16 *d_A, int lda,
+    const ElementB_FP16 *d_B, int ldb,
+    ElementC_FP16 *d_C, int ldc,
     float alpha,
     float beta,
     cudaStream_t stream = 0)
 {
-    // Define the GEMM operation with default configurations
-    // CUTLASS will automatically select optimal tile sizes and instruction shapes
-    using Gemm = cutlass::gemm::device::Gemm<
-        ElementA, LayoutA,          // Element type and layout for matrix A
-        ElementB, LayoutB,          // Element type and layout for matrix B
-        ElementC, LayoutCLayout,    // Element type and layout for matrix C/D
-        ElementAccumulator          // Accumulator type
-        // All other template parameters use defaults which are optimal for the given types
-        >;
+    if (M == 0 || N == 0 || K == 0) return cudaSuccess;
 
-    // Construct GEMM arguments
-    typename Gemm::Arguments args(
-        {M, N, K},    // Problem size
-        {d_A, K},     // TensorRef for A: pointer and leading dimension
-        {d_B, N},     // TensorRef for B: pointer and leading dimension
-        {d_C, N},     // TensorRef for C: pointer and leading dimension
-        {d_C, N},     // TensorRef for D: pointer and leading dimension (in-place)
-        {alpha, beta} // Epilogue scalars
+    auto gemm_ptr = get_or_create_gemm_fp16(M, N, K, lda, ldb, ldc);
+    Gemm_FP16 &gemm_op = *gemm_ptr;
+
+    typename Gemm_FP16::Arguments args(
+        {M, N, K},
+        {d_A, lda},
+        {d_B, ldb},
+        {d_C, ldc},
+        {d_C, ldc},
+        {alpha, beta}
     );
 
-    // Create GEMM operator instance
-    Gemm gemm_op;
-
-    // Check if the problem can be implemented with this configuration
     cutlass::Status status = gemm_op.can_implement(args);
     if (status != cutlass::Status::kSuccess)
-    {
-        std::cerr << "CUTLASS: Problem cannot be implemented with this configuration: "
-                  << cutlass::cutlassGetStatusString(status) << std::endl;
         return cudaErrorNotSupported;
-    }
 
-    // Initialize the GEMM operator
     status = gemm_op.initialize(args, nullptr, stream);
     if (status != cutlass::Status::kSuccess)
-    {
-        std::cerr << "CUTLASS: Initialization failed: "
-                  << cutlass::cutlassGetStatusString(status) << std::endl;
         return cudaErrorUnknown;
-    }
 
-    // Execute the GEMM operation
-    status = gemm_op();
+    status = gemm_op(stream);
     if (status != cutlass::Status::kSuccess)
-    {
-        std::cerr << "CUTLASS: Execution failed: "
-                  << cutlass::cutlassGetStatusString(status) << std::endl;
         return cudaErrorUnknown;
+
+    return cudaSuccess;
+}
+
+// -----------------------------------------------------------------------------
+// BF16 GEMM Configuration
+// -----------------------------------------------------------------------------
+using ElementA_BF16 = cutlass::bfloat16_t;
+using ElementB_BF16 = cutlass::bfloat16_t;
+using ElementC_BF16 = float;  // Output in FP32
+
+using EpilogueOp_BF16 = cutlass::epilogue::thread::LinearCombination<
+    ElementC_BF16,
+    128 / cutlass::sizeof_bits<ElementC_BF16>::value,
+    ElementAccumulator,
+    ElementCompute
+>;
+
+using Gemm_BF16 = cutlass::gemm::device::Gemm<
+    ElementA_BF16,
+    LayoutA,
+    ElementB_BF16,
+    LayoutB,
+    ElementC_BF16,
+    LayoutC,
+    ElementAccumulator,
+    cutlass::arch::OpClassTensorOp,
+    cutlass::arch::Sm80,
+    ThreadblockShape,
+    WarpShape,
+    InstructionShape,
+    EpilogueOp_BF16,
+    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+    2  // Pipeline stages (double buffering)
+>;
+
+// Cache for BF16 GEMM operators
+static std::mutex g_gemm_bf16_cache_mutex;
+static std::map<GemmKey, std::shared_ptr<Gemm_BF16>> g_gemm_bf16_cache;
+
+static std::shared_ptr<Gemm_BF16> get_or_create_gemm_bf16(int M, int N, int K, int lda, int ldb, int ldc)
+{
+    GemmKey key = std::make_tuple(M, N, K, lda, ldb, ldc);
+    std::lock_guard<std::mutex> lock(g_gemm_bf16_cache_mutex);
+    auto it = g_gemm_bf16_cache.find(key);
+    if (it != g_gemm_bf16_cache.end()) {
+        return it->second;
     }
+    auto gemm_ptr = std::make_shared<Gemm_BF16>();
+    g_gemm_bf16_cache[key] = gemm_ptr;
+    return gemm_ptr;
+}
+
+cudaError_t cutlass_gemm_bf16_launch(
+    int M, int N, int K,
+    const ElementA_BF16 *d_A, int lda,
+    const ElementB_BF16 *d_B, int ldb,
+    ElementC_BF16 *d_C, int ldc,
+    float alpha,
+    float beta,
+    cudaStream_t stream = 0)
+{
+    if (M == 0 || N == 0 || K == 0) return cudaSuccess;
+
+    auto gemm_ptr = get_or_create_gemm_bf16(M, N, K, lda, ldb, ldc);
+    Gemm_BF16 &gemm_op = *gemm_ptr;
+
+    typename Gemm_BF16::Arguments args(
+        {M, N, K},
+        {d_A, lda},
+        {d_B, ldb},
+        {d_C, ldc},
+        {d_C, ldc},
+        {alpha, beta}
+    );
+
+    cutlass::Status status = gemm_op.can_implement(args);
+    if (status != cutlass::Status::kSuccess)
+        return cudaErrorNotSupported;
+
+    status = gemm_op.initialize(args, nullptr, stream);
+    if (status != cutlass::Status::kSuccess)
+        return cudaErrorUnknown;
+
+    status = gemm_op(stream);
+    if (status != cutlass::Status::kSuccess)
+        return cudaErrorUnknown;
 
     return cudaSuccess;
 }
@@ -133,35 +245,35 @@ void sgemm_cutlass_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matr
     TORCH_CHECK(output_matrix.scalar_type() == at::kFloat, "Output matrix must be float32");
 
     TORCH_CHECK(matrix_a.dim() == 2 && matrix_b.dim() == 2, "A and B must be 2D tensors");
-    TORCH_CHECK(matrix_a.is_contiguous() && matrix_b.is_contiguous(),
-                "A and B must be contiguous");
-    TORCH_CHECK(output_matrix.is_contiguous(), "Output matrix must be contiguous");
+
+    // Make tensors contiguous
+    auto A = matrix_a.contiguous();
+    auto B = matrix_b.contiguous();
+    auto C = output_matrix.contiguous();
 
     // Extract dimensions
-    int M = static_cast<int>(matrix_a.size(0));
-    int K = static_cast<int>(matrix_a.size(1));
-    int N = static_cast<int>(matrix_b.size(1));
+    int M = static_cast<int>(A.size(0));
+    int K = static_cast<int>(A.size(1));
+    int N = static_cast<int>(B.size(1));
 
-    TORCH_CHECK(matrix_b.size(0) == K,
-                "Matrix dimension mismatch: A is MxK, B is KxN, but B has wrong K");
-    TORCH_CHECK(output_matrix.size(0) == M && output_matrix.size(1) == N,
-                "Output matrix has wrong shape");
+    TORCH_CHECK(B.size(0) == K, "Matrix dimension mismatch: A is MxK, B is KxN, but B has wrong K");
+    TORCH_CHECK(C.size(0) == M && C.size(1) == N, "Output matrix has wrong shape");
 
     // Get device pointers
-    const half *d_A = reinterpret_cast<const half *>(matrix_a.data_ptr<at::Half>());
-    const half *d_B = reinterpret_cast<const half *>(matrix_b.data_ptr<at::Half>());
-    float *d_C = output_matrix.data_ptr<float>();
+    const ElementA_FP16 *d_A = reinterpret_cast<const ElementA_FP16 *>(A.data_ptr<at::Half>());
+    const ElementB_FP16 *d_B = reinterpret_cast<const ElementB_FP16 *>(B.data_ptr<at::Half>());
+    ElementC_FP16 *d_C = C.data_ptr<float>();
 
-    // Launch CUTLASS GEMM (using default stream)
-    cudaError_t err = cutlass_gemm_launch<
-        cutlass::half_t, cutlass::half_t, float,
-        cutlass::layout::RowMajor, cutlass::layout::RowMajor, cutlass::layout::RowMajor>(
-        M, N, K,
-        reinterpret_cast<const cutlass::half_t *>(d_A),
-        reinterpret_cast<const cutlass::half_t *>(d_B),
-        d_C,
-        alpha, beta,
-        0);  // Use default CUDA stream
+    int lda = K;
+    int ldb = N;
+    int ldc = N;
+
+    // Get current CUDA stream (use default stream 0 for simplicity)
+    cudaStream_t stream = 0;
+
+    // Launch CUTLASS GEMM
+    cudaError_t err = cutlass_gemm_fp16_launch(
+        M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
 
     TORCH_CHECK(err == cudaSuccess,
                 "CUTLASS GEMM (FP16) failed with error: ", cudaGetErrorString(err));
@@ -183,39 +295,35 @@ void sgemm_cutlass_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matr
     TORCH_CHECK(output_matrix.scalar_type() == at::kFloat, "Output matrix must be float32");
 
     TORCH_CHECK(matrix_a.dim() == 2 && matrix_b.dim() == 2, "A and B must be 2D tensors");
-    TORCH_CHECK(matrix_a.is_contiguous() && matrix_b.is_contiguous(),
-                "A and B must be contiguous");
-    TORCH_CHECK(output_matrix.is_contiguous(), "Output matrix must be contiguous");
+
+    // Make tensors contiguous
+    auto A = matrix_a.contiguous();
+    auto B = matrix_b.contiguous();
+    auto C = output_matrix.contiguous();
 
     // Extract dimensions
-    int M = static_cast<int>(matrix_a.size(0));
-    int K = static_cast<int>(matrix_a.size(1));
-    int N = static_cast<int>(matrix_b.size(1));
+    int M = static_cast<int>(A.size(0));
+    int K = static_cast<int>(A.size(1));
+    int N = static_cast<int>(B.size(1));
 
-    TORCH_CHECK(matrix_b.size(0) == K,
-                "Matrix dimension mismatch: A is MxK, B is KxN, but B has wrong K");
-    TORCH_CHECK(output_matrix.size(0) == M && output_matrix.size(1) == N,
-                "Output matrix has wrong shape");
+    TORCH_CHECK(B.size(0) == K, "Matrix dimension mismatch: A is MxK, B is KxN, but B has wrong K");
+    TORCH_CHECK(C.size(0) == M && C.size(1) == N, "Output matrix has wrong shape");
 
     // Get device pointers
-    const nv_bfloat16 *d_A_raw = reinterpret_cast<const nv_bfloat16 *>(
-        matrix_a.data_ptr<at::BFloat16>());
-    const nv_bfloat16 *d_B_raw = reinterpret_cast<const nv_bfloat16 *>(
-        matrix_b.data_ptr<at::BFloat16>());
-    float *d_C = output_matrix.data_ptr<float>();
+    const ElementA_BF16 *d_A = reinterpret_cast<const ElementA_BF16 *>(A.data_ptr<at::BFloat16>());
+    const ElementB_BF16 *d_B = reinterpret_cast<const ElementB_BF16 *>(B.data_ptr<at::BFloat16>());
+    ElementC_BF16 *d_C = C.data_ptr<float>();
 
-    // Cast to CUTLASS bfloat16_t type
-    const cutlass::bfloat16_t *d_A = reinterpret_cast<const cutlass::bfloat16_t *>(d_A_raw);
-    const cutlass::bfloat16_t *d_B = reinterpret_cast<const cutlass::bfloat16_t *>(d_B_raw);
+    int lda = K;
+    int ldb = N;
+    int ldc = N;
 
-    // Launch CUTLASS GEMM (using default stream)
-    cudaError_t err = cutlass_gemm_launch<
-        cutlass::bfloat16_t, cutlass::bfloat16_t, float,
-        cutlass::layout::RowMajor, cutlass::layout::RowMajor, cutlass::layout::RowMajor>(
-        M, N, K,
-        d_A, d_B, d_C,
-        alpha, beta,
-        0);  // Use default CUDA stream
+    // Get current CUDA stream (use default stream 0 for simplicity)
+    cudaStream_t stream = 0;
+
+    // Launch CUTLASS GEMM
+    cudaError_t err = cutlass_gemm_bf16_launch(
+        M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
 
     TORCH_CHECK(err == cudaSuccess,
                 "CUTLASS GEMM (BF16) failed with error: ", cudaGetErrorString(err));
