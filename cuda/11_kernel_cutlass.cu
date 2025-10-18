@@ -73,14 +73,12 @@ struct CutlassGemmConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
+        // Cant use sm89: https://github.com/NVIDIA/cutlass/issues/1181
         cutlass::arch::Sm80,
         ThreadblockShape,
         WarpShape,
         InstructionShape,
-        EpilogueOp,
-        cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-        2 // Pipeline stages
-        >;
+        EpilogueOp>;
 };
 
 // Type aliases for specific dtypes
