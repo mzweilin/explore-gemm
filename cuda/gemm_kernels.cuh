@@ -63,10 +63,15 @@ void sgemm_tensorcore_double_buffered_bf16(const torch::Tensor &matrix_a, const 
                                            torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with CUTLASS library
-// Input: FP16 or BF16, Output: FP32
-// Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations
+// Input: FP16, BF16, or FP32, Output: FP32
+// Uses NVIDIA CUTLASS library for highly optimized operations:
+//  - FP16/BF16: Tensor Core operations
+//  - FP32: SIMT operations
 void sgemm_cutlass_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                         torch::Tensor &output_matrix, float alpha, float beta);
 
 void sgemm_cutlass_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                        torch::Tensor &output_matrix, float alpha, float beta);
+
+void sgemm_cutlass_fp32(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                         torch::Tensor &output_matrix, float alpha, float beta);

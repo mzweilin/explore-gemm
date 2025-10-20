@@ -21,6 +21,7 @@ Available kernels:
     All dtypes (FP32/FP16/BF16):
     - pytorch: PyTorch baseline implementation
     - warptiling: CUDA GEMM with warp-level tiling (supports all dtypes)
+    - cutlass_fp32: CUTLASS library GEMM with FP32 inputs (SIMT operations)
 
     FP32 only:
     - naive: Naive CUDA GEMM kernel
@@ -220,6 +221,16 @@ def cuda_cutlass_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c_fp32.to(a.dtype)
 
 
+def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for CUTLASS GEMM kernel with FP32 inputs.
+
+    Uses NVIDIA CUTLASS library with SIMT operations for FP32.
+    """
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_cutlass_fp32(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """PyTorch reference implementation."""
     return torch.matmul(a, b)
@@ -329,6 +340,7 @@ def create_visualization(
         "CUDA Tensor Core Double Buffered (BF16)": "#7FB3D5",
         "CUTLASS (FP16)": "#FF9999",
         "CUTLASS (BF16)": "#FFB366",
+        "CUTLASS (FP32)": "#FF7F50",
     }
 
     # Plot 1: TFLOPS
@@ -900,6 +912,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             ("blocktiling_2d", "CUDA 2D Block Tiling", cuda_blocktiling_2d_gemm, "🔷"),
             ("vectorize", "CUDA Vectorize", cuda_vectorize_gemm, "💫"),
             ("warptiling", "CUDA Warptiling", cuda_warptiling_gemm, "⚡"),
+            ("cutlass_fp32", "CUTLASS (FP32)", cuda_cutlass_fp32_gemm, "🚀"),
         ]
 
         # Add Tensor Core kernels only for FP16/BF16
@@ -1099,6 +1112,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             "tensorcore_db_bf16",
             "cutlass_fp16",
             "cutlass_bf16",
+            "cutlass_fp32",
         ],
         case_sensitive=False,
     ),
@@ -1136,8 +1150,8 @@ def main(kernels, dtype):
     """
     # If no kernels specified, run all available for the dtype
     if not kernels:
-        # PyTorch and warptiling support all dtypes
-        kernels_to_run = ["pytorch", "warptiling"]
+        # PyTorch, warptiling, and cutlass_fp32 support all dtypes
+        kernels_to_run = ["pytorch", "warptiling", "cutlass_fp32"]
 
         # FP32-only kernels (don't support FP16/BF16)
         if dtype == "float32":

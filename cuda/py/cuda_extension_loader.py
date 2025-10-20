@@ -200,6 +200,7 @@ def create_cuda_extension(verbose: bool = True):
             "sgemm_tensorcore_double_buffered_bf16",
             "sgemm_cutlass_fp16",
             "sgemm_cutlass_bf16",
+            "sgemm_cutlass_fp32",
         ],
         with_cuda=True,
         verbose=verbose,

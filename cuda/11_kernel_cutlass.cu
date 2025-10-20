@@ -1,20 +1,31 @@
 // 11_kernel_cutlass.cu
-// CUTLASS-based GEMM kernel for FP16 and BF16
+// CUTLASS-based GEMM kernel for FP16, BF16, and FP32
 //
 // This implementation uses NVIDIA's CUTLASS library to provide highly optimized
-// tensor core-based matrix multiplication for half-precision types.
+// matrix multiplication:
+//  - FP16/BF16: Tensor Core operations
+//  - FP32: SIMT operations
 //
 // Build requirements:
 //  - CUTLASS library (>= v3.x) headers
-//  - CUDA toolkit with Tensor Core support (SM >= 75)
+//  - CUDA toolkit with Tensor Core support (SM80 Ampere)
 //  - PyTorch for tensor management
 //
-// Configuration:
+// Configuration (FP16/BF16):
 // - Threadblock: 128 x 128 x 32 (M x N x K)
 // - Warp: 64 x 64 x 32
 // - Instruction: 16 x 8 x 16 (Tensor Core)
 // - Pipeline stages: 2 (double buffering)
-// - No caching or swizzling for simplicity
+// - Architecture: SM80 (Ampere)
+//
+// Configuration (FP32):
+// - Threadblock: 128 x 128 x 8 (M x N x K)
+// - Warp: 64 x 64 x 8
+// - Instruction: 1 x 1 x 1 (SIMT)
+// - Pipeline stages: 2 (double buffering)
+// - Architecture: SM80 (Ampere)
+//
+// No caching or swizzling for simplicity
 
 #include <torch/torch.h>
 #include <cuda_runtime.h>
@@ -69,16 +80,54 @@ struct CutlassGemmConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
-        cutlass::arch::Sm80,
+        cutlass::arch::Sm80,  // SM80 for Ampere architecture
         ThreadblockShape,
         WarpShape,
         InstructionShape,
         EpilogueOp>;
 };
 
-// Type aliases for specific dtypes
+// Type aliases for specific dtypes (FP16/BF16 - Tensor Cores required)
 using FP16Config = CutlassGemmConfig<cutlass::half_t>;
 using BF16Config = CutlassGemmConfig<cutlass::bfloat16_t>;
+
+// -----------------------------------------------------------------------------
+// FP32 SIMT configuration (no Tensor Cores)
+// -----------------------------------------------------------------------------
+
+// FP32 uses different tile shapes and SIMT instead of TensorOp
+using ThreadblockShapeFP32 = cutlass::gemm::GemmShape<128, 128, 8>;
+using WarpShapeFP32 = cutlass::gemm::GemmShape<64, 64, 8>;
+using InstructionShapeFP32 = cutlass::gemm::GemmShape<1, 1, 1>;
+
+struct CutlassGemmConfigFP32
+{
+    using ElementInput = float;
+
+    // SIMT epilogue must operate on scalars (vector length = 1)
+    using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+        ElementOutput,
+        1,  // Must be 1 for SIMT operations
+        ElementAccumulator,
+        ElementCompute>;
+
+    using Gemm = cutlass::gemm::device::Gemm<
+        ElementInput,
+        LayoutA,
+        ElementInput,
+        LayoutB,
+        ElementOutput,
+        LayoutC,
+        ElementAccumulator,
+        cutlass::arch::OpClassSimt,  // SIMT instead of TensorOp
+        cutlass::arch::Sm80,          // SM80 for Ampere architecture
+        ThreadblockShapeFP32,
+        WarpShapeFP32,
+        InstructionShapeFP32,
+        EpilogueOp>;
+};
+
+using FP32Config = CutlassGemmConfigFP32;
 
 // -----------------------------------------------------------------------------
 // Templated GEMM launcher (no caching)
@@ -200,4 +249,13 @@ void sgemm_cutlass_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matr
     cutlass_gemm_pytorch_wrapper<BF16Config, at::BFloat16>(
         matrix_a, matrix_b, output_matrix, alpha, beta,
         "bfloat16", at::kBFloat16);
+}
+
+// FP32 launcher
+void sgemm_cutlass_fp32(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                        torch::Tensor &output_matrix, float alpha, float beta)
+{
+    cutlass_gemm_pytorch_wrapper<FP32Config, float>(
+        matrix_a, matrix_b, output_matrix, alpha, beta,
+        "float32", at::kFloat);
 }
