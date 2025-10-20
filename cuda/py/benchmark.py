@@ -21,7 +21,6 @@ Available kernels:
     All dtypes (FP32/FP16/BF16):
     - pytorch: PyTorch baseline implementation
     - warptiling: CUDA GEMM with warp-level tiling (supports all dtypes)
-    - cutlass_fp32: CUTLASS library GEMM with FP32 inputs (SIMT operations)
 
     FP32 only:
     - naive: Naive CUDA GEMM kernel
@@ -30,6 +29,7 @@ Available kernels:
     - blocktiling_1d: CUDA GEMM with 1D block tiling
     - blocktiling_2d: CUDA GEMM with 2D block tiling
     - vectorize: CUDA GEMM with vectorized memory access
+    - cutlass_fp32: CUTLASS library GEMM with FP32 inputs (SIMT operations)
 
     FP16/BF16 only:
     - tensorcore_fp16: CUDA Tensor Core with FP16 inputs (requires -d float16)
@@ -825,6 +825,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
         "blocktiling_1d",
         "blocktiling_2d",
         "vectorize",
+        "cutlass_fp32",
     }
 
     # Filter out FP32-only kernels when using FP16/BF16
@@ -1150,8 +1151,8 @@ def main(kernels, dtype):
     """
     # If no kernels specified, run all available for the dtype
     if not kernels:
-        # PyTorch, warptiling, and cutlass_fp32 support all dtypes
-        kernels_to_run = ["pytorch", "warptiling", "cutlass_fp32"]
+        # PyTorch and warptiling support all dtypes
+        kernels_to_run = ["pytorch", "warptiling"]
 
         # FP32-only kernels (don't support FP16/BF16)
         if dtype == "float32":
@@ -1163,6 +1164,7 @@ def main(kernels, dtype):
                     "blocktiling_1d",
                     "blocktiling_2d",
                     "vectorize",
+                    "cutlass_fp32",
                 ]
             )
 
