@@ -1,24 +1,16 @@
 #include <cstdio>
-#include <cstdlib>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <torch/torch.h>
 #include "gemm_kernels.cuh"
-
-namespace
-{
-    constexpr int ceil_div(int m, int n)
-    {
-        return (m + n - 1) / n;
-    }
-}
+#include "utils.cuh"
 
 template <const uint block_size>
 __global__ void sgemm_naive_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                    float alpha, const float *matrix_a,
                                    const float *matrix_b, float beta, float *output_matrix)
 {
-    // Map 1D thread ID to 2D output position for coalesced memory access
+    // Map 1D thread ID to 2D output position
     const int output_row = blockIdx.x * block_size + (threadIdx.x % block_size);
     const int output_col = blockIdx.y * block_size + (threadIdx.x / block_size);
 
@@ -30,13 +22,6 @@ __global__ void sgemm_naive_kernel(int num_rows_a, int num_cols_b, int num_cols_
         {
             accumulator += matrix_a[output_row * num_cols_a + k_idx] *
                            matrix_b[k_idx * num_cols_b + output_col];
-            if (threadIdx.x < 64)
-            {
-                printf("Thread %d ; Warp %d: Multiplying A[%d][%d] * B[%d][%d] = C[%d][%d]\n",
-                       threadIdx.x, threadIdx.x / 32, output_row, k_idx,
-                       k_idx, output_col,
-                       output_row, output_col);
-            }
         }
         // C = α*(A@B)+β*C
         const int output_idx = output_row * num_cols_b + output_col;
@@ -60,12 +45,10 @@ void sgemm_naive(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
     const int num_cols_b = static_cast<int>(matrix_b.size(1));
 
     TORCH_CHECK(matrix_b.size(0) == num_cols_a, "Matrix dimensions must match: A is MxK, B must be KxN");
-
     TORCH_CHECK(output_matrix.device().is_cuda(), "Matrix C must be on CUDA device");
     TORCH_CHECK(output_matrix.dtype() == torch::kFloat32, "Matrix C must be float32");
     TORCH_CHECK(output_matrix.size(0) == num_rows_a && output_matrix.size(1) == num_cols_b, "Matrix C must be MxN");
 
-    // Get raw device pointers
     const float *d_matrix_a = matrix_a.data_ptr<float>();
     const float *d_matrix_b = matrix_b.data_ptr<float>();
     float *d_output_matrix = output_matrix.data_ptr<float>();

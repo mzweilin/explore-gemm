@@ -105,9 +105,6 @@ if(CUTLASS_AVAILABLE)
     target_link_libraries(test_gemm_cutlass "${TORCH_LIBRARIES}")
 endif()
 
-add_executable(autotune_kernels ${CMAKE_SOURCE_DIR}/cuda/autotune_kernels.cpp ${gpu_source_files})
-target_link_libraries(autotune_kernels "${TORCH_LIBRARIES}")
-
 enable_testing()
 
 add_test(NAME test_gemm_naive COMMAND test_gemm_naive)

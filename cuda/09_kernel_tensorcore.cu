@@ -9,14 +9,12 @@
 
 #include <cassert>
 #include <cstdio>
-#include <cstdlib>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <mma.h>
 #include <torch/torch.h>
 #include "gemm_kernels.cuh"
-
-#define CEIL_DIV(m, n) (((m) + (n) - 1) / (n))
+#include "utils.cuh"
 
 // Tensor Core GEMM kernel with warp tiling
 // WMMA tile dimensions are template parameters to avoid global constant conflicts
@@ -273,7 +271,7 @@ void sgemm_tensorcore_fp16(const torch::Tensor &matrix_a, const torch::Tensor &m
     constexpr int BN = WARP_COL_TILES * BLOCK_COL_WARPS * WMMA_N; // 2*4*16 = 128
 
     // Grid and block dimensions
-    dim3 grid_dim(CEIL_DIV(num_cols_b, BN), CEIL_DIV(num_rows_a, BM));
+    dim3 grid_dim(ceil_div(num_cols_b, BN), ceil_div(num_rows_a, BM));
     dim3 block_dim(BLOCK_ROW_WARPS * BLOCK_COL_WARPS * 32); // 16 warps * 32 = 512 threads
 
     // Launch kernel with explicit template parameters
@@ -336,7 +334,7 @@ void sgemm_tensorcore_bf16(const torch::Tensor &matrix_a, const torch::Tensor &m
     constexpr int BN = WARP_COL_TILES * BLOCK_COL_WARPS * WMMA_N; // 2*4*16 = 128
 
     // Grid and block dimensions
-    dim3 grid_dim(CEIL_DIV(num_cols_b, BN), CEIL_DIV(num_rows_a, BM));
+    dim3 grid_dim(ceil_div(num_cols_b, BN), ceil_div(num_rows_a, BM));
     dim3 block_dim(BLOCK_ROW_WARPS * BLOCK_COL_WARPS * 32); // 16 warps * 32 = 512 threads
 
     // Launch kernel with BF16 input type

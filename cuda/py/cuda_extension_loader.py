@@ -12,8 +12,17 @@ from torch.utils.cpp_extension import load_inline
 from loguru import logger
 
 
-def get_cuda_code(cuda_file: str, header_file: str) -> Tuple[str, str]:
-    """Load CUDA source and header files, removing #include and #pragma once directives."""
+def get_cuda_code(cuda_file: str, header_file: str, utils_header_file: str) -> Tuple[str, str, str]:
+    """Load CUDA source and header files, removing #include and #pragma once directives.
+
+    Args:
+        cuda_file: Path to the CUDA source file
+        header_file: Path to the main header file (gemm_kernels.cuh)
+        utils_header_file: Path to utilities header file (utils.cuh)
+
+    Returns:
+        Tuple of (cuda_code, header_code, utils_code)
+    """
     with open(cuda_file) as f:
         cuda_code = "".join(
             [line for line in f.readlines() if not line.startswith("#include")]
@@ -29,7 +38,17 @@ def get_cuda_code(cuda_file: str, header_file: str) -> Tuple[str, str]:
             ]
         )
 
-    return cuda_code, header_code
+    with open(utils_header_file) as f:
+        utils_code = "".join(
+            [
+                line
+                for line in f.readlines()
+                if not line.startswith("#include")
+                and not line.startswith("#pragma once")
+            ]
+        )
+
+    return cuda_code, header_code, utils_code
 
 
 def create_cuda_extension(verbose: bool = True):
@@ -59,6 +78,7 @@ def create_cuda_extension(verbose: bool = True):
     tensorcore_double_buffered_cu = file_dir / "10_kernel_tensorcore_double_buffered.cu"
     cutlass_cu = file_dir / "11_kernel_cutlass.cu"
     header_file = file_dir / "gemm_kernels.cuh"
+    utils_header_file = file_dir / "utils.cuh"
 
     if verbose:
         logger.info("📂 Loading CUDA sources:")
@@ -76,23 +96,24 @@ def create_cuda_extension(verbose: bool = True):
         )
         logger.info(f"   • CUTLASS: {cutlass_cu}")
         logger.info(f"   • Header: {header_file}")
+        logger.info(f"   • Utils Header: {utils_header_file}")
 
     # Read all source files
-    naive_code, _ = get_cuda_code(str(naive_cu), str(header_file))
-    coalesce_code, _ = get_cuda_code(str(coalesce_cu), str(header_file))
-    shared_mem_code, _ = get_cuda_code(str(shared_mem_cu), str(header_file))
-    blocktiling_1d_code, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file))
-    blocktiling_2d_code, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file))
-    vectorize_code, _ = get_cuda_code(str(vectorize_cu), str(header_file))
-    warptiling_code, _ = get_cuda_code(str(warptiling_cu), str(header_file))
-    warptiling_multidtype_code, _ = get_cuda_code(
-        str(warptiling_multidtype_cu), str(header_file)
+    naive_code, _, _ = get_cuda_code(str(naive_cu), str(header_file), str(utils_header_file))
+    coalesce_code, _, _ = get_cuda_code(str(coalesce_cu), str(header_file), str(utils_header_file))
+    shared_mem_code, _, _ = get_cuda_code(str(shared_mem_cu), str(header_file), str(utils_header_file))
+    blocktiling_1d_code, _, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file), str(utils_header_file))
+    blocktiling_2d_code, _, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file), str(utils_header_file))
+    vectorize_code, _, _ = get_cuda_code(str(vectorize_cu), str(header_file), str(utils_header_file))
+    warptiling_code, _, _ = get_cuda_code(str(warptiling_cu), str(header_file), str(utils_header_file))
+    warptiling_multidtype_code, _, _ = get_cuda_code(
+        str(warptiling_multidtype_cu), str(header_file), str(utils_header_file)
     )
-    tensorcore_code, _ = get_cuda_code(str(tensorcore_cu), str(header_file))
-    tensorcore_double_buffered_code, _ = get_cuda_code(
-        str(tensorcore_double_buffered_cu), str(header_file)
+    tensorcore_code, _, _ = get_cuda_code(str(tensorcore_cu), str(header_file), str(utils_header_file))
+    tensorcore_double_buffered_code, _, _ = get_cuda_code(
+        str(tensorcore_double_buffered_cu), str(header_file), str(utils_header_file)
     )
-    cutlass_code, header_code = get_cuda_code(str(cutlass_cu), str(header_file))
+    cutlass_code, header_code, utils_code = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
 
     # Combine CUDA sources
     # Add preprocessor directives to enable half-precision and WMMA for Tensor Cores
@@ -131,6 +152,8 @@ def create_cuda_extension(verbose: bool = True):
 
     combined_cuda_code = (
         cuda_header
+        + utils_code
+        + "\n"
         + naive_code
         + "\n"
         + coalesce_code

@@ -1,34 +1,9 @@
 #include <cassert>
 #include <cstdio>
-#include <cstdlib>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <torch/torch.h>
 #include "gemm_kernels.cuh"
-
-/*
-Matrix sizes:
-A: M x K
-B: K x N
-C: M x N
-
-C = alpha * (A @ B) + beta * C
-
-This kernel adds vectorized memory access to improve memory bandwidth utilization.
-Key improvements over 2D block tiling:
-- Uses float4 (128-bit) vectorized loads from global memory
-- Stores tiles in shared memory with transposed layout for coalesced access
-- Reduces number of memory transactions by 4x
-- Better utilization of memory bandwidth
-
-IMPORTANT: This kernel requires matrix dimensions to be multiples of tile sizes:
-- M must be multiple of BM (128)
-- K must be multiple of BK (8)
-- N must be multiple of BN (128)
-No bounds checking is performed in the kernel for maximum performance.
-*/
-
-#define CEIL_DIV(m, n) (((m) + (n) - 1) / (n))
 
 template <const int BM, const int BN, const int BK, const int TM, const int TN>
 __global__ void sgemm_vectorize_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
@@ -66,7 +41,6 @@ __global__ void sgemm_vectorize_kernel(int num_rows_a, int num_cols_b, int num_c
 
     // Outer loop over K dimension
     for (uint block_k_idx = 0; block_k_idx < num_cols_a; block_k_idx += BK) {
-        // ==================== VECTORIZED LOAD FROM GLOBAL MEMORY ====================
 
         // Load tile_a using float4 vectorized loads
         // Store in transposed layout: tile_a[col][row] for coalesced shared memory access
@@ -91,8 +65,6 @@ __global__ void sgemm_vectorize_kernel(int num_rows_a, int num_cols_b, int num_c
         // Advance pointers for next tile
         matrix_a += BK;
         matrix_b += BK * num_cols_b;
-
-        // ==================== COMPUTE USING REGISTER BLOCKING ====================
 
         for (uint dot_idx = 0; dot_idx < BK; ++dot_idx) {
             // Load TM elements from tile_a (transposed layout)
@@ -120,8 +92,6 @@ __global__ void sgemm_vectorize_kernel(int num_rows_a, int num_cols_b, int num_c
 
         __syncthreads();
     }
-
-    // ==================== WRITE RESULTS TO GLOBAL MEMORY ====================
 
     // Write results with alpha/beta scaling
     #pragma unroll

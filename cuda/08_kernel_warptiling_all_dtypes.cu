@@ -1,70 +1,32 @@
-// Warptiling GEMM with FP16/BF16 Support
-// This kernel extends the warptiling approach to support 16-bit data types.
-//
-// Key features:
-// - Template parameter for input dtype: half or nv_bfloat16 (FP32 uses the base warptiling kernel)
-// - Output matches input dtype (standard PyTorch behavior)
-// - Internal accumulation uses FP32 for numerical precision, converted back to input dtype on store
-// - Vectorized loads with dtype-specific vector types (half2/bfloat162)
-// - Same warp-level tiling strategy as 07_kernel_warptiling.cu
-//
-// Hierarchy:
-// Block (BM x BN) → Multiple Warps → Each Warp (WM x WN) → Warp Subtiles (WSUBM x WSUBN) → Thread Tiles (TM x TN)
+/*
+Warptiling GEMM with FP16/BF16/FP32 support.
+Uses FP32 accumulation internally, converts to output dtype on store.
+*/
 
 #include <cassert>
 #include <cstdio>
-#include <cstdlib>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <torch/torch.h>
 #include "gemm_kernels.cuh"
+#include "utils.cuh"
 
-// Use the same CEIL_DIV and WARPSIZE definitions as other kernels
-// (they may already be defined when combining source files)
-#define CEIL_DIV(m, n) (((m) + (n) - 1) / (n))
 
-#ifndef WARPSIZE_
-constexpr int WARPSIZE = 32;
-#define WARPSIZE_ 32
-#endif
-
-// ==================== TYPE TRAITS FOR VECTORIZATION ====================
-
-// Helper to get the vectorized type for 16-bit input types
 template <typename T>
-struct VecType
-{
-};
+struct VecType {};
 template <>
-struct VecType<half>
-{
-    using type = half2;
-}; // Load 2 halfs at a time
+struct VecType<half> { using type = half2; };
 template <>
-struct VecType<nv_bfloat16>
-{
-    using type = nv_bfloat162;
-}; // Load 2 bf16s at a time
+struct VecType<nv_bfloat16> { using type = nv_bfloat162; };
 
-// Vector size in elements (always 2 for 16-bit types)
 template <typename T>
 constexpr int vec_size() { return 2; }
-
-// Type conversion helpers for 16-bit types
-// (work even when conversion operators are disabled by PyTorch macros)
 __device__ __forceinline__ float to_float(half x) { return __half2float(x); }
 __device__ __forceinline__ float to_float(nv_bfloat16 x) { return __bfloat162float(x); }
-
-// Convert float to InputType (using CUDA intrinsics for 16-bit types)
 __device__ __forceinline__ half from_float(float x, half) { return __float2half(x); }
 __device__ __forceinline__ nv_bfloat16 from_float(float x, nv_bfloat16) { return __float2bfloat16(x); }
-
-// ==================== HELPER FUNCTIONS ====================
-
-// Load data from global memory to shared memory with vectorized access for 16-bit types
-// Uses half2/bfloat162 (2 elements at a time)
 template <typename InputType, const int BM, const int BN, const int BK,
           const int row_stride_a, const int row_stride_b>
 __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
@@ -73,21 +35,17 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
                                int inner_row_a, int inner_col_a,
                                int inner_row_b, int inner_col_b)
 {
-    constexpr int VEC_SIZE = 2; // Always 2 for half2/bfloat162
+    constexpr int VEC_SIZE = 2;
     using VecT = typename VecType<InputType>::type;
 
-    // Load tile_a with vectorized loads and transpose
     for (uint offset = 0; offset + row_stride_a <= BM; offset += row_stride_a)
     {
         const VecT tmp_a = reinterpret_cast<const VecT *>(
             &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * VEC_SIZE])[0];
-
-        // Transpose while storing to shared memory (half2/bfloat162)
         tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
         tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
     }
 
-    // Load tile_b with vectorized loads
     for (uint offset = 0; offset + row_stride_b <= BK; offset += row_stride_b)
     {
         reinterpret_cast<VecT *>(
@@ -96,9 +54,6 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
                 &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * VEC_SIZE])[0];
     }
 }
-
-// Process warptile: compute using warp subtiling
-// Convert to float on load for best numerical precision
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WMITER, const int WNITER,
           const int WSUBM, const int WSUBN, const int TM, const int TN>
@@ -107,45 +62,36 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
                                   const uint warp_row, const uint warp_col,
                                   const uint thread_row_in_warp, const uint thread_col_in_warp)
 {
-    // Loop over BK dimension
     for (uint dot_idx = 0; dot_idx < BK; ++dot_idx)
     {
-        // Populate registers for entire warptile (convert to FP32 on load)
-        // Load WMITER * TM elements from tile_a (covers all warp subtiles in M dimension)
         for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
         {
             for (uint i = 0; i < TM; ++i)
             {
-                // Convert to float on load for best numerical precision
                 register_m[wsub_row_idx * TM + i] =
                     to_float(tile_a[(dot_idx * BM) + warp_row * WM + wsub_row_idx * WSUBM +
                                     thread_row_in_warp * TM + i]);
             }
         }
 
-        // Load WNITER * TN elements from tile_b (covers all warp subtiles in N dimension)
         for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
         {
             for (uint i = 0; i < TN; ++i)
             {
-                // Convert to float on load for best numerical precision
                 register_n[wsub_col_idx * TN + i] =
                     to_float(tile_b[(dot_idx * BN) + warp_col * WN + wsub_col_idx * WSUBN +
                                     thread_col_in_warp * TN + i]);
             }
         }
 
-        // Execute warptile matmul across all warp subtiles
         for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
         {
             for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
             {
-                // Calculate per-thread results for this warp subtile
                 for (uint res_idx_m = 0; res_idx_m < TM; ++res_idx_m)
                 {
                     for (uint res_idx_n = 0; res_idx_n < TN; ++res_idx_n)
                     {
-                        // FMA with FP32 values (no conversion needed)
                         thread_results[(wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
                                        (wsub_col_idx * TN) + res_idx_n] +=
                             register_m[wsub_row_idx * TM + res_idx_m] *
@@ -156,8 +102,6 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
         }
     }
 }
-
-// Specialization for float (no conversion needed)
 template <>
 __device__ void process_warp_tile<float, 128, 128, 16, 64, 64, 2, 4, 32, 16, 8, 4>(
     float *register_m, float *register_n, float *thread_results,
@@ -171,10 +115,8 @@ __device__ void process_warp_tile<float, 128, 128, 16, 64, 64, 2, 4, 32, 16, 8, 
     constexpr int WSUBM = 32, WSUBN = 16;
     constexpr int TM = 8, TN = 4;
 
-    // Loop over BK dimension
     for (uint dot_idx = 0; dot_idx < BK; ++dot_idx)
     {
-        // Populate registers for entire warptile
         for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
         {
             for (uint i = 0; i < TM; ++i)
@@ -214,8 +156,6 @@ __device__ void process_warp_tile<float, 128, 128, 16, 64, 64, 2, 4, 32, 16, 8, 
     }
 }
 
-// ==================== WARPTILING KERNEL (MULTI-DTYPE) ====================
-
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WNITER, const int TM, const int TN,
           const int NUM_THREADS>
@@ -227,31 +167,25 @@ __global__ void __launch_bounds__(NUM_THREADS)
     const uint block_row = blockIdx.y;
     const uint block_col = blockIdx.x;
 
-    // Warp-level placement within threadblock
     const uint warp_idx = threadIdx.x / WARPSIZE;
     const uint warp_col = warp_idx % (BN / WN);
     const uint warp_row = warp_idx / (BN / WN);
 
-    // Warp subtile dimensions
     constexpr uint WMITER = (WM * WN) / (WARPSIZE * TM * TN * WNITER);
     constexpr uint WSUBM = WM / WMITER;
     constexpr uint WSUBN = WN / WNITER;
 
-    // Thread placement within warp subtile
     const uint thread_idx_in_warp = threadIdx.x % WARPSIZE;
     const uint thread_col_in_warp = thread_idx_in_warp % (WSUBN / TN);
     const uint thread_row_in_warp = thread_idx_in_warp / (WSUBN / TN);
 
-    // Shared memory for block tiles
     __shared__ InputType tile_a[BM * BK];
     __shared__ InputType tile_b[BK * BN];
 
-    // Position matrix pointers
     matrix_a += block_row * BM * num_cols_a;
     matrix_b += block_col * BN;
     matrix_c += (block_row * BM + warp_row * WM) * num_cols_b + block_col * BN + warp_col * WN;
 
-    // Thread indices for loading data (vectorized)
     constexpr int VEC_SIZE = vec_size<InputType>();
     const uint inner_row_a = threadIdx.x / (BK / VEC_SIZE);
     const uint inner_col_a = threadIdx.x % (BK / VEC_SIZE);
@@ -261,37 +195,28 @@ __global__ void __launch_bounds__(NUM_THREADS)
     const uint inner_col_b = threadIdx.x % (BN / VEC_SIZE);
     constexpr uint row_stride_b = NUM_THREADS / (BN / VEC_SIZE);
 
-    // Thread-local storage in registers
-    // All registers are FP32 for numerical precision (convert on load, not in FMA loop)
     float thread_results[WMITER * TM * WNITER * TN] = {0.0f};
     float register_m[WMITER * TM] = {0.0f};
     float register_n[WNITER * TN] = {0.0f};
 
-    // Outer loop over block tiles along K dimension
     for (uint block_k_idx = 0; block_k_idx < num_cols_a; block_k_idx += BK)
     {
-        // Load block tile from global memory to shared memory
         load_from_gmem<InputType, BM, BN, BK, row_stride_a, row_stride_b>(
             num_cols_b, num_cols_a, matrix_a, matrix_b, tile_a, tile_b,
             inner_row_a, inner_col_a, inner_row_b, inner_col_b);
 
         __syncthreads();
 
-        // Process warptile from shared memory
         process_warp_tile<InputType, BM, BN, BK, WM, WN, WMITER, WNITER, WSUBM, WSUBN, TM, TN>(
             register_m, register_n, thread_results, tile_a, tile_b,
             warp_row, warp_col, thread_row_in_warp, thread_col_in_warp);
 
-        // Advance to next block tile
         matrix_a += BK;
         matrix_b += BK * num_cols_b;
 
         __syncthreads();
     }
 
-    // ==================== WRITE RESULTS TO GLOBAL MEMORY ====================
-
-    // Write results for each warp subtile (convert from FP32 to InputType)
     for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
     {
         for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
@@ -306,11 +231,8 @@ __global__ void __launch_bounds__(NUM_THREADS)
                     const int res_idx = (wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
                                         wsub_col_idx * TN + res_idx_n;
 
-                    // Load C value, perform GEMM update, and write back
-                    // Accumulation is in FP32, then converted to InputType for output
                     InputType c_val = matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
                                                        thread_col_in_warp * TN + res_idx_n];
-                    // Use to_float() and from_float() helpers for type conversion
                     float result = alpha * thread_results[res_idx] + beta * to_float(c_val);
                     matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
                                      thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
@@ -319,17 +241,12 @@ __global__ void __launch_bounds__(NUM_THREADS)
         }
     }
 }
-
-// ==================== LAUNCHER FUNCTIONS ====================
-
-// Generic launcher template
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WNITER, const int TM, const int TN,
           const int NUM_THREADS>
 void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                  torch::Tensor &output_matrix, float alpha, float beta)
 {
-    // Validate inputs
     TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
     TORCH_CHECK(matrix_b.device().is_cuda(), "Matrix B must be on CUDA device");
     TORCH_CHECK(output_matrix.device().is_cuda(), "Matrix C must be on CUDA device");
@@ -347,12 +264,10 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
     TORCH_CHECK(output_matrix.size(0) == num_rows_a && output_matrix.size(1) == num_cols_b,
                 "Matrix C must be MxN");
 
-    // Validate dimensions are multiples of tile sizes
     TORCH_CHECK(num_rows_a % BM == 0, "Matrix A rows must be multiple of ", BM);
     TORCH_CHECK(num_cols_a % BK == 0, "Matrix A cols must be multiple of ", BK);
     TORCH_CHECK(num_cols_b % BN == 0, "Matrix B cols must be multiple of ", BN);
 
-    // Validate warptiling constraints
     constexpr int WMITER = (WM * WN) / (WARPSIZE * TM * TN * WNITER);
     constexpr int WSUBM = WM / WMITER;
     constexpr int WSUBN = WN / WNITER;
@@ -361,42 +276,32 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
     static_assert((BM % WM == 0) && (BN % WN == 0), "Block tile must be divisible by warp tile");
     static_assert((WSUBM % TM == 0) && (WSUBN % TN == 0), "Warp subtile must be divisible by thread tile");
 
-    // Get raw device pointers
     const InputType *d_matrix_a = reinterpret_cast<const InputType *>(matrix_a.data_ptr());
     const InputType *d_matrix_b = reinterpret_cast<const InputType *>(matrix_b.data_ptr());
     InputType *d_output_matrix = reinterpret_cast<InputType *>(output_matrix.data_ptr());
 
-    // Configure kernel launch
     dim3 block_dim(NUM_THREADS);
-    dim3 grid_dim(CEIL_DIV(num_cols_b, BN), CEIL_DIV(num_rows_a, BM));
+    dim3 grid_dim(ceil_div(num_cols_b, BN), ceil_div(num_rows_a, BM));
 
-    // Launch kernel
     sgemm_warptiling_multidtype_kernel<InputType, BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS>
         <<<grid_dim, block_dim>>>(
             num_rows_a, num_cols_b, num_cols_a,
             alpha, d_matrix_a, d_matrix_b, beta, d_output_matrix);
 }
-
-// ==================== PUBLIC API FUNCTIONS ====================
-
-// FP16 version
 void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta)
 {
     TORCH_CHECK(matrix_a.dtype() == torch::kFloat16, "Matrix A must be float16");
     TORCH_CHECK(matrix_b.dtype() == torch::kFloat16, "Matrix B must be float16");
-
     sgemm_warptiling_multidtype<half, 128, 128, 16, 64, 64, 4, 8, 4, 128>(
         matrix_a, matrix_b, output_matrix, alpha, beta);
 }
 
-// BF16 version
 void sgemm_warptiling_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta)
 {
     TORCH_CHECK(matrix_a.dtype() == torch::kBFloat16, "Matrix A must be bfloat16");
     TORCH_CHECK(matrix_b.dtype() == torch::kBFloat16, "Matrix B must be bfloat16");
-
     sgemm_warptiling_multidtype<nv_bfloat16, 128, 128, 16, 64, 64, 4, 8, 4, 128>(
         matrix_a, matrix_b, output_matrix, alpha, beta);
 }

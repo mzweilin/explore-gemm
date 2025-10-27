@@ -1,25 +1,10 @@
 #include <cassert>
 #include <cstdio>
-#include <cstdlib>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <torch/torch.h>
 #include "gemm_kernels.cuh"
-
-/*
-Matrix sizes:
-A: M x K
-B: K x N
-C: M x N
-
-C = alpha * (A @ B) + beta * C
-
-This kernel uses 1D block tiling to improve performance over shared memory tiling.
-Each thread computes TM results, reducing the number of threads needed and improving
-register reuse. This allows better utilization of shared memory and reduces synchronization overhead.
-*/
-
-#define CEIL_DIV(m, n) (((m) + (n) - 1) / (n))
+#include "utils.cuh"
 
 template <const int BM, const int BN, const int BK, const int TM>
 __global__ void sgemm_blocktiling_1d_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
@@ -41,11 +26,12 @@ __global__ void sgemm_blocktiling_1d_kernel(int num_rows_a, int num_cols_b, int 
     const int global_col = block_col * BN + thread_col;
 
     // Move pointers to the starting position for this block
-    matrix_a += block_row * BM * num_cols_a;  // row=block_row, col=0
-    matrix_b += block_col * BN;               // row=0, col=block_col
+    matrix_a += block_row * BM * num_cols_a; // row=block_row, col=0
+    matrix_b += block_col * BN;              // row=0, col=block_col
     matrix_c += block_row * BM * num_cols_b + block_col * BN;
 
-    // Allocate thread-local cache for results in registerfile
+    // Allocate thread-local cache for results in register file
+    // Instead of single accumulator, we have TM accumulators per thread
     float thread_results[TM] = {0.0f};
 
     // Loop over all tiles along K dimension
@@ -55,9 +41,12 @@ __global__ void sgemm_blocktiling_1d_kernel(int num_rows_a, int num_cols_b, int 
         // Each thread loads one element from A
         const uint a_row = threadIdx.x / BK;
         const uint a_col = threadIdx.x % BK;
-        if ((block_row * BM + a_row) < num_rows_a && (tile_idx + a_col) < num_cols_a) {
+        if ((block_row * BM + a_row) < num_rows_a && (tile_idx + a_col) < num_cols_a)
+        {
             tile_a[a_row * BK + a_col] = matrix_a[a_row * num_cols_a + a_col];
-        } else {
+        }
+        else
+        {
             tile_a[a_row * BK + a_col] = 0.0f;
         }
 
@@ -65,9 +54,12 @@ __global__ void sgemm_blocktiling_1d_kernel(int num_rows_a, int num_cols_b, int 
         // Each thread loads one element from B
         const uint b_row = threadIdx.x / BN;
         const uint b_col = threadIdx.x % BN;
-        if ((tile_idx + b_row) < num_cols_a && (block_col * BN + b_col) < num_cols_b) {
+        if ((tile_idx + b_row) < num_cols_a && (block_col * BN + b_col) < num_cols_b)
+        {
             tile_b[b_row * BN + b_col] = matrix_b[b_row * num_cols_b + b_col];
-        } else {
+        }
+        else
+        {
             tile_b[b_row * BN + b_col] = 0.0f;
         }
 
@@ -78,11 +70,13 @@ __global__ void sgemm_blocktiling_1d_kernel(int num_rows_a, int num_cols_b, int 
         matrix_b += BK * num_cols_b;
 
         // Calculate per-thread results
-        for (uint dot_idx = 0; dot_idx < BK; ++dot_idx) {
+        for (uint dot_idx = 0; dot_idx < BK; ++dot_idx)
+        {
             // We make the dotproduct loop the outside loop, which facilitates
             // reuse of the tile_b entry, which we can cache in a tmp var.
             float b_tmp = tile_b[dot_idx * BN + thread_col];
-            for (uint res_idx = 0; res_idx < TM; ++res_idx) {
+            for (uint res_idx = 0; res_idx < TM; ++res_idx)
+            {
                 thread_results[res_idx] +=
                     tile_a[(thread_row * TM + res_idx) * BK + dot_idx] * b_tmp;
             }
@@ -92,9 +86,11 @@ __global__ void sgemm_blocktiling_1d_kernel(int num_rows_a, int num_cols_b, int 
     }
 
     // Write results to global memory: C = α*(A@B)+β*C
-    for (uint res_idx = 0; res_idx < TM; ++res_idx) {
+    for (uint res_idx = 0; res_idx < TM; ++res_idx)
+    {
         int row = global_row + res_idx;
-        if (row < num_rows_a && global_col < num_cols_b) {
+        if (row < num_rows_a && global_col < num_cols_b)
+        {
             matrix_c[(thread_row * TM + res_idx) * num_cols_b + thread_col] =
                 alpha * thread_results[res_idx] +
                 beta * matrix_c[(thread_row * TM + res_idx) * num_cols_b + thread_col];
@@ -137,8 +133,8 @@ void sgemm_blocktiling_1d(const torch::Tensor &matrix_a, const torch::Tensor &ma
     // Configure kernel launch
     // Number of threads = (BM / TM) * BN = (64 / 8) * 64 = 512 threads per block
     dim3 block_dim((BM / TM) * BN);
-    dim3 grid_dim(CEIL_DIV(num_rows_a, BM),
-                  CEIL_DIV(num_cols_b, BN));
+    dim3 grid_dim(ceil_div(num_rows_a, BM),
+                  ceil_div(num_cols_b, BN));
 
     // Launch kernel
     sgemm_blocktiling_1d_kernel<BM, BN, BK, TM><<<grid_dim, block_dim>>>(
