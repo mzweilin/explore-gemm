@@ -13,6 +13,7 @@ float max_diff(const torch::Tensor &a, const torch::Tensor &b) {
 TEST_CASE("SGEMM Warptiling - Basic functionality", "[sgemm_warptiling]") {
     const float alpha = 1.0f;
     const float beta = 0.0f;
+    torch::manual_seed(42);
 
     SECTION("Small matrix - 128x128") {
         const int M = 128;
@@ -142,6 +143,7 @@ TEST_CASE("SGEMM Warptiling - Alpha/Beta scaling", "[sgemm_warptiling]") {
     const int M = 256;
     const int K = 256;
     const int N = 256;
+    torch::manual_seed(42);
 
     SECTION("Alpha = 2.0, Beta = 0.0") {
         const float alpha = 2.0f;
@@ -197,6 +199,7 @@ TEST_CASE("SGEMM Warptiling - Alpha/Beta scaling", "[sgemm_warptiling]") {
 TEST_CASE("SGEMM Warptiling - Very large power-of-2 matrices", "[sgemm_warptiling]") {
     const float alpha = 1.0f;
     const float beta = 0.0f;
+    torch::manual_seed(42);
 
     SECTION("1024x1024") {
         const int M = 1024;
@@ -239,6 +242,7 @@ TEST_CASE("SGEMM Warptiling - Different template configurations", "[sgemm_warpti
     const int M = 256;
     const int K = 256;
     const int N = 256;
+    torch::manual_seed(42);
 
     SECTION("Config 2: BM=128, BN=128, WM=64, WN=32, WNITER=2") {
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));

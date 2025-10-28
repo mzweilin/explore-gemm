@@ -13,6 +13,7 @@ float max_diff(const torch::Tensor &a, const torch::Tensor &b) {
 TEST_CASE("SGEMM Tensor Core Double Buffered FP16 - Basic functionality", "[sgemm_tensorcore_double_buffered_fp16]") {
     const float alpha = 1.0f;
     const float beta = 0.0f;
+    torch::manual_seed(42);
 
     SECTION("Small matrix - 256x256") {
         const int M = 256;
@@ -98,6 +99,7 @@ TEST_CASE("SGEMM Tensor Core Double Buffered FP16 - Basic functionality", "[sgem
 TEST_CASE("SGEMM Tensor Core Double Buffered BF16 - Basic functionality", "[sgemm_tensorcore_double_buffered_bf16]") {
     const float alpha = 1.0f;
     const float beta = 0.0f;
+    torch::manual_seed(42);
 
     SECTION("Small matrix - 256x256") {
         const int M = 256;
@@ -184,6 +186,7 @@ TEST_CASE("SGEMM Tensor Core Double Buffered FP16 - Alpha/Beta scaling", "[sgemm
     const int M = 512;
     const int K = 512;
     const int N = 512;
+    torch::manual_seed(42);
 
     SECTION("Alpha = 2.0, Beta = 0.0") {
         const float alpha = 2.0f;

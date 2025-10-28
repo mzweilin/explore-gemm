@@ -22,6 +22,8 @@ bool tensors_are_close(const torch::Tensor &a, const torch::Tensor &b, float tol
 
 TEST_CASE("SGEMM CUTLASS FP16 - Basic functionality", "[cutlass][fp16]")
 {
+    torch::manual_seed(42);
+
     SECTION("Small matrix - 128x128")
     {
         int M = 128, N = 128, K = 128;
@@ -103,6 +105,8 @@ TEST_CASE("SGEMM CUTLASS FP16 - Basic functionality", "[cutlass][fp16]")
 
 TEST_CASE("SGEMM CUTLASS FP16 - Alpha/Beta scaling", "[cutlass][fp16][scaling]")
 {
+    torch::manual_seed(42);
+
     int M = 128, N = 128, K = 128;
     auto options_fp16 = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA);
     auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
@@ -151,6 +155,8 @@ TEST_CASE("SGEMM CUTLASS FP16 - Alpha/Beta scaling", "[cutlass][fp16][scaling]")
 
 TEST_CASE("SGEMM CUTLASS BF16 - Basic functionality", "[cutlass][bf16]")
 {
+    torch::manual_seed(42);
+
     SECTION("Small matrix - 128x128")
     {
         int M = 128, N = 128, K = 128;
@@ -211,6 +217,8 @@ TEST_CASE("SGEMM CUTLASS BF16 - Basic functionality", "[cutlass][bf16]")
 
 TEST_CASE("SGEMM CUTLASS BF16 - Alpha/Beta scaling", "[cutlass][bf16][scaling]")
 {
+    torch::manual_seed(42);
+
     int M = 128, N = 128, K = 128;
     auto options_bf16 = torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA);
     auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
@@ -234,6 +242,8 @@ TEST_CASE("SGEMM CUTLASS BF16 - Alpha/Beta scaling", "[cutlass][bf16][scaling]")
 
 TEST_CASE("SGEMM CUTLASS FP32 - Basic functionality", "[cutlass][fp32]")
 {
+    torch::manual_seed(42);
+
     SECTION("Small matrix - 128x128")
     {
         int M = 128, N = 128, K = 128;
@@ -331,6 +341,8 @@ TEST_CASE("SGEMM CUTLASS FP32 - Basic functionality", "[cutlass][fp32]")
 
 TEST_CASE("SGEMM CUTLASS FP32 - Alpha/Beta scaling", "[cutlass][fp32][scaling]")
 {
+    torch::manual_seed(42);
+
     int M = 128, N = 128, K = 128;
     auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 

@@ -13,20 +13,29 @@ Uses FP32 accumulation internally, converts to output dtype on store.
 #include "gemm_kernels.cuh"
 #include "utils.cuh"
 
-
 template <typename T>
-struct VecType {};
+struct VecType
+{
+};
 template <>
-struct VecType<half> { using type = half2; };
+struct VecType<half>
+{
+    using type = half2;
+};
 template <>
-struct VecType<nv_bfloat16> { using type = nv_bfloat162; };
+struct VecType<nv_bfloat16>
+{
+    using type = nv_bfloat162;
+};
 
 template <typename T>
 constexpr int vec_size() { return 2; }
+
 __device__ __forceinline__ float to_float(half x) { return __half2float(x); }
 __device__ __forceinline__ float to_float(nv_bfloat16 x) { return __bfloat162float(x); }
 __device__ __forceinline__ half from_float(float x, half) { return __float2half(x); }
 __device__ __forceinline__ nv_bfloat16 from_float(float x, nv_bfloat16) { return __float2bfloat16(x); }
+
 template <typename InputType, const int BM, const int BN, const int BK,
           const int row_stride_a, const int row_stride_b>
 __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
@@ -57,7 +66,7 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WMITER, const int WNITER,
           const int WSUBM, const int WSUBN, const int TM, const int TN>
-__device__ void process_warp_tile(float *register_m, float *register_n, float *thread_results,
+__device__ void process_warp_tile(InputType *register_m, InputType *register_n, float *thread_results,
                                   const InputType *tile_a, const InputType *tile_b,
                                   const uint warp_row, const uint warp_col,
                                   const uint thread_row_in_warp, const uint thread_col_in_warp)
@@ -69,8 +78,8 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
             for (uint i = 0; i < TM; ++i)
             {
                 register_m[wsub_row_idx * TM + i] =
-                    to_float(tile_a[(dot_idx * BM) + warp_row * WM + wsub_row_idx * WSUBM +
-                                    thread_row_in_warp * TM + i]);
+                    tile_a[(dot_idx * BM) + warp_row * WM + wsub_row_idx * WSUBM +
+                           thread_row_in_warp * TM + i];
             }
         }
 
@@ -79,8 +88,8 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
             for (uint i = 0; i < TN; ++i)
             {
                 register_n[wsub_col_idx * TN + i] =
-                    to_float(tile_b[(dot_idx * BN) + warp_col * WN + wsub_col_idx * WSUBN +
-                                    thread_col_in_warp * TN + i]);
+                    tile_b[(dot_idx * BN) + warp_col * WN + wsub_col_idx * WSUBN +
+                           thread_col_in_warp * TN + i];
             }
         }
 
@@ -94,14 +103,15 @@ __device__ void process_warp_tile(float *register_m, float *register_n, float *t
                     {
                         thread_results[(wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
                                        (wsub_col_idx * TN) + res_idx_n] +=
-                            register_m[wsub_row_idx * TM + res_idx_m] *
-                            register_n[wsub_col_idx * TN + res_idx_n];
+                            to_float(register_m[wsub_row_idx * TM + res_idx_m]) *
+                            to_float(register_n[wsub_col_idx * TN + res_idx_n]);
                     }
                 }
             }
         }
     }
 }
+
 template <>
 __device__ void process_warp_tile<float, 128, 128, 16, 64, 64, 2, 4, 32, 16, 8, 4>(
     float *register_m, float *register_n, float *thread_results,
@@ -196,8 +206,8 @@ __global__ void __launch_bounds__(NUM_THREADS)
     constexpr uint row_stride_b = NUM_THREADS / (BN / VEC_SIZE);
 
     float thread_results[WMITER * TM * WNITER * TN] = {0.0f};
-    float register_m[WMITER * TM] = {0.0f};
-    float register_n[WNITER * TN] = {0.0f};
+    InputType register_m[WMITER * TM] = {};
+    InputType register_n[WNITER * TN] = {};
 
     for (uint block_k_idx = 0; block_k_idx < num_cols_a; block_k_idx += BK)
     {
@@ -222,7 +232,7 @@ __global__ void __launch_bounds__(NUM_THREADS)
         for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
         {
             InputType *matrix_c_interim = matrix_c + (wsub_row_idx * WSUBM) * num_cols_b +
-                                          wsub_col_idx * WSUBN;
+                                      wsub_col_idx * WSUBN;
 
             for (uint res_idx_m = 0; res_idx_m < TM; res_idx_m += 1)
             {
@@ -231,16 +241,27 @@ __global__ void __launch_bounds__(NUM_THREADS)
                     const int res_idx = (wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
                                         wsub_col_idx * TN + res_idx_n;
 
-                    InputType c_val = matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                                       thread_col_in_warp * TN + res_idx_n];
-                    float result = alpha * thread_results[res_idx] + beta * to_float(c_val);
-                    matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                     thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
+                    if (beta == 0.0f)
+                    {
+                        float result = alpha * thread_results[res_idx];
+                        matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
+                                         thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
+
+                    } else
+                    {
+                        float c_val = to_float(matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
+                                               thread_col_in_warp * TN + res_idx_n]);
+                        float result = alpha * thread_results[res_idx] + beta * c_val;
+                        matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
+                                         thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
+                    }
+
                 }
             }
         }
     }
 }
+
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WNITER, const int TM, const int TN,
           const int NUM_THREADS>
@@ -276,9 +297,9 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
     static_assert((BM % WM == 0) && (BN % WN == 0), "Block tile must be divisible by warp tile");
     static_assert((WSUBM % TM == 0) && (WSUBN % TN == 0), "Warp subtile must be divisible by thread tile");
 
-    const InputType *d_matrix_a = reinterpret_cast<const InputType *>(matrix_a.data_ptr());
-    const InputType *d_matrix_b = reinterpret_cast<const InputType *>(matrix_b.data_ptr());
-    InputType *d_output_matrix = reinterpret_cast<InputType *>(output_matrix.data_ptr());
+    const auto *d_matrix_a = static_cast<const InputType *>(matrix_a.data_ptr());
+    const auto *d_matrix_b = static_cast<const InputType *>(matrix_b.data_ptr());
+    auto *d_output_matrix = static_cast<InputType *>(output_matrix.data_ptr());
 
     dim3 block_dim(NUM_THREADS);
     dim3 grid_dim(ceil_div(num_cols_b, BN), ceil_div(num_rows_a, BM));

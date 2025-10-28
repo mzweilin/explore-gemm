@@ -72,15 +72,6 @@ TEST_CASE("SGEMM Warptiling FP16 - Basic functionality", "[sgemm_warptiling_fp16
 
         sgemm_warptiling_fp16(a, b, c, alpha, beta);
 
-        std::cout << "Expected tensor dtype: " << expected.dtype() << std::endl;
-        std::cout << "Computed tensor dtype: " << c.dtype() << std::endl;
-        auto diff_tensor = (c - expected).abs();
-        std::cout << "Difference tensor dtype: " << diff_tensor.dtype() << std::endl;
-        std::cout << diff_tensor << std::endl;
-        std::cout << "Max difference value: " << diff_tensor.max().item<float>() << std::endl;
-        std::cout << diff_tensor.min().item<float>() << std::endl;
-        std::cout << torch::count_nonzero(diff_tensor ) << std::endl;
-
         float diff = max_diff(c.to(torch::kFloat32), expected.to(torch::kFloat32));
         std::cout << "128x128 FP16 max_diff: " << diff << std::endl;
         REQUIRE(diff < 1e-2f);  // FP16 has lower precision
