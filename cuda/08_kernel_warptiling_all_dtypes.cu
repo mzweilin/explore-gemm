@@ -13,23 +13,6 @@ Uses FP32 accumulation internally, converts to output dtype on store.
 #include "gemm_kernels.cuh"
 #include "utils.cuh"
 
-template <typename T>
-struct VecType
-{
-};
-template <>
-struct VecType<half>
-{
-    using type = half2;
-};
-template <>
-struct VecType<nv_bfloat16>
-{
-    using type = nv_bfloat162;
-};
-
-template <typename T>
-constexpr int vec_size() { return 2; }
 
 __device__ __forceinline__ float to_float(half x) { return __half2float(x); }
 __device__ __forceinline__ float to_float(nv_bfloat16 x) { return __bfloat162float(x); }
@@ -44,23 +27,40 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
                                int inner_row_a, int inner_col_a,
                                int inner_row_b, int inner_col_b)
 {
-    constexpr int VEC_SIZE = 2;
-    using VecT = typename VecType<InputType>::type;
-
     for (uint offset = 0; offset + row_stride_a <= BM; offset += row_stride_a)
     {
-        const VecT tmp_a = reinterpret_cast<const VecT *>(
-            &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * VEC_SIZE])[0];
-        tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
-        tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
+        if constexpr (std::is_same_v<InputType, half>)
+        {
+            const half2 tmp_a = reinterpret_cast<const half2 *>(
+                &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 2])[0];
+            tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
+            tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
+        }
+        else if constexpr (std::is_same_v<InputType, nv_bfloat16>)
+        {
+            const nv_bfloat162 tmp_a = reinterpret_cast<const nv_bfloat162 *>(
+                &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 2])[0];
+            tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
+            tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
+        }
     }
 
     for (uint offset = 0; offset + row_stride_b <= BK; offset += row_stride_b)
     {
-        reinterpret_cast<VecT *>(
-            &tile_b[(inner_row_b + offset) * BN + inner_col_b * VEC_SIZE])[0] =
-            reinterpret_cast<const VecT *>(
-                &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * VEC_SIZE])[0];
+        if constexpr (std::is_same_v<InputType, half>)
+        {
+            reinterpret_cast<half2 *>(
+                &tile_b[(inner_row_b + offset) * BN + inner_col_b * 2])[0] =
+                reinterpret_cast<const half2 *>(
+                    &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 2])[0];
+        }
+        else if constexpr (std::is_same_v<InputType, nv_bfloat16>)
+        {
+            reinterpret_cast<nv_bfloat162 *>(
+                &tile_b[(inner_row_b + offset) * BN + inner_col_b * 2])[0] =
+                reinterpret_cast<const nv_bfloat162 *>(
+                    &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 2])[0];
+        }
     }
 }
 template <typename InputType, const int BM, const int BN, const int BK,
@@ -196,7 +196,7 @@ __global__ void __launch_bounds__(NUM_THREADS)
     matrix_b += block_col * BN;
     matrix_c += (block_row * BM + warp_row * WM) * num_cols_b + block_col * BN + warp_col * WN;
 
-    constexpr int VEC_SIZE = vec_size<InputType>();
+    constexpr int VEC_SIZE = 2;
     const uint inner_row_a = threadIdx.x / (BK / VEC_SIZE);
     const uint inner_col_a = threadIdx.x % (BK / VEC_SIZE);
     constexpr uint row_stride_a = (NUM_THREADS * VEC_SIZE) / BK;
