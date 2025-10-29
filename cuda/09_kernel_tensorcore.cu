@@ -27,9 +27,9 @@ sgemm_tensorcore_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                         const InputType *matrix_b, float beta,
                         float *matrix_c)
 {
-    const int warp_id = threadIdx.x / 32;
-    const int warp_row = warp_id / BLOCK_COL_WARPS;
-    const int warp_col = warp_id % BLOCK_COL_WARPS;
+    const uint warp_id = threadIdx.x / 32;
+    const uint warp_row = warp_id / BLOCK_COL_WARPS;
+    const uint warp_col = warp_id % BLOCK_COL_WARPS;
 
     constexpr int BLOCK_ROW_TILES = WARP_ROW_TILES * BLOCK_ROW_WARPS;
     constexpr int BLOCK_COL_TILES = WARP_COL_TILES * BLOCK_COL_WARPS;

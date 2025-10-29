@@ -277,7 +277,7 @@ def calculate_metrics(M, N, K, avg_time_ms, element_size: int = 4):
         avg_time_ms: Average execution time in milliseconds
         element_size: Bytes per element (4 for FP32, 2 for FP16/BF16)
     """
-    # FLOPs: 2MNK for matrix multiplication
+    # FLOPs: 2MNK for matrix multiplication (2 ops per MAC)
     flops = 2 * M * N * K
     tflops = (flops / (avg_time_ms * 1e-3)) * 1e-12
 
@@ -297,6 +297,7 @@ def create_visualization(
 
     # RTX 4090 theoretical peak performance
     RTX_4090_PEAK_TFLOPS = 82.58  # FP32 TFLOPS
+    RTX_4090_PEAK_TFLOP16S = 165.16  # 2x FP32 for FP16/BF16 (TFLOP16s)
     RTX_4090_PEAK_BANDWIDTH_GBPS = 1008.0  # 1.008 TB/s = 1008 GB/s
 
     # Format dtype for display
@@ -306,12 +307,20 @@ def create_visualization(
         else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
     )
 
+    # Determine which TFLOP metric to use
+    tflop_metric = "TFLOP16s" if dtype in ["float16", "bfloat16"] else "TFLOPS"
+    peak_tflops = (
+        RTX_4090_PEAK_TFLOP16S
+        if dtype in ["float16", "bfloat16"]
+        else RTX_4090_PEAK_TFLOPS
+    )
+
     # Create subplots
     fig = make_subplots(
         rows=2,
         cols=2,
         subplot_titles=(
-            f"🚀 TFLOPS Performance vs Matrix Size ({dtype_display})",
+            f"🚀 {tflop_metric} Performance vs Matrix Size ({dtype_display})",
             f"💾 Memory Bandwidth vs Matrix Size ({dtype_display})",
             f"⏱️ Execution Time vs Matrix Size ({dtype_display})",
             f"📈 Speedup vs PyTorch (Baseline) ({dtype_display})",
@@ -427,14 +436,14 @@ def create_visualization(
     )
 
     # Add RTX 4090 theoretical peak lines using add_shape for subplots
-    # TFLOPS peak line (row 1, col 1)
+    # TFLOPS/TFLOP16s peak line (row 1, col 1)
     fig.add_hline(
-        y=RTX_4090_PEAK_TFLOPS,
+        y=peak_tflops,
         line_dash="dot",
         line_color="red",
         line_width=2,
-        annotation_text=f"RTX 4090 Peak: {RTX_4090_PEAK_TFLOPS} TFLOPS",
-        annotation_position="left",
+        annotation_text=f"RTX 4090 Peak: {peak_tflops} {tflop_metric}",
+        annotation_position="top",
         row=1,  # type: ignore
         col=1,  # type: ignore
     )
@@ -446,7 +455,7 @@ def create_visualization(
         line_color="red",
         line_width=2,
         annotation_text=f"RTX 4090 Peak: {RTX_4090_PEAK_BANDWIDTH_GBPS} GB/s",
-        annotation_position="right",
+        annotation_position="top",
         row=1,  # type: ignore
         col=2,  # type: ignore
     )
@@ -457,7 +466,7 @@ def create_visualization(
     fig.update_xaxes(title_text="Matrix Size (M=N=K)", row=2, col=1, type="log")
     fig.update_xaxes(title_text="Matrix Size (M=N=K)", row=2, col=2, type="log")
 
-    fig.update_yaxes(title_text="TFLOPS", row=1, col=1)
+    fig.update_yaxes(title_text=tflop_metric, row=1, col=1)
     fig.update_yaxes(title_text="Bandwidth (GB/s)", row=1, col=2)
     fig.update_yaxes(title_text="Time (ms)", row=2, col=1, type="log")
     fig.update_yaxes(title_text="Speedup (×)", row=2, col=2)
@@ -498,6 +507,9 @@ def create_html_report(
         if dtype == "float32"
         else dtype.replace("float", "FP").replace("bfloat", "BF").upper()
     )
+
+    # Determine which TFLOP metric to use
+    tflop_metric = "TFLOP16s" if dtype in ["float16", "bfloat16"] else "TFLOPS"
 
     html_content = f"""
 <!DOCTYPE html>
@@ -738,7 +750,7 @@ def create_html_report(
                     <th>Matrix Size</th>
                     <th>Kernel</th>
                     <th>Avg Time (ms)</th>
-                    <th>TFLOPS</th>
+                    <th>{tflop_metric}</th>
                     <th>Bandwidth (GB/s)</th>
                     <th>Speedup</th>
                 </tr>
@@ -1170,9 +1182,13 @@ def main(kernels, dtype):
 
         # Add Tensor Core and CUTLASS kernels for FP16/BF16
         if dtype == "float16":
-            kernels_to_run.extend(["tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"])
+            kernels_to_run.extend(
+                ["tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"]
+            )
         elif dtype == "bfloat16":
-            kernels_to_run.extend(["tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"])
+            kernels_to_run.extend(
+                ["tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"]
+            )
     else:
         kernels_to_run = list(kernels)
 
