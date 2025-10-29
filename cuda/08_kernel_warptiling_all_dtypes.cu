@@ -1,10 +1,4 @@
-/*
-Warptiling GEMM with FP16/BF16/FP32 support.
-Uses FP32 accumulation internally, converts to output dtype on store.
-*/
-
 #include <cassert>
-#include <cstdio>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
@@ -13,10 +7,10 @@ Uses FP32 accumulation internally, converts to output dtype on store.
 #include "gemm_kernels.cuh"
 #include "utils.cuh"
 
-__device__ __forceinline__ float to_float(half x) { return __half2float(x); }
-__device__ __forceinline__ float to_float(nv_bfloat16 x) { return __bfloat162float(x); }
-__device__ __forceinline__ half from_float(float x, half) { return __float2half(x); }
-__device__ __forceinline__ nv_bfloat16 from_float(float x, nv_bfloat16) { return __float2bfloat16(x); }
+__device__ __forceinline__ float to_float(const half x) { return __half2float(x); }
+__device__ __forceinline__ float to_float(const nv_bfloat16 x) { return __bfloat162float(x); }
+__device__ __forceinline__ half from_float(const float x, half) { return __float2half(x); }
+__device__ __forceinline__ nv_bfloat16 from_float(const float x, nv_bfloat16) { return __float2bfloat16(x); }
 
 template <typename InputType, const int BM, const int BN, const int BK,
           const int row_stride_a, const int row_stride_b>
@@ -158,6 +152,7 @@ __global__ void __launch_bounds__(NUM_THREADS)
         __syncthreads();
     }
 
+    // Write out results with float2 vectorized stores
     for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
     {
         for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
@@ -167,25 +162,25 @@ __global__ void __launch_bounds__(NUM_THREADS)
 
             for (uint res_idx_m = 0; res_idx_m < TM; res_idx_m += 1)
             {
-                for (uint res_idx_n = 0; res_idx_n < TN; ++res_idx_n)
+                for (uint res_idx_n = 0; res_idx_n < TN; res_idx_n += 4)
                 {
-                    const int res_idx = (wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
-                                        wsub_col_idx * TN + res_idx_n;
+                    InputType tmp[4];
+                    float2 x;
+                    const int i = (wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
+                                  wsub_col_idx * TN + res_idx_n;
 
-                    if (beta == 0.0f)
-                    {
-                        float result = alpha * thread_results[res_idx];
-                        matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                         thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
-                    }
-                    else
+                    // Compute all 4 values
+                    for (int j = 0; j < 4; ++j)
                     {
                         float c_val = to_float(matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                                                thread_col_in_warp * TN + res_idx_n]);
-                        float result = alpha * thread_results[res_idx] + beta * c_val;
-                        matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                         thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
+                                                                thread_col_in_warp * TN + res_idx_n + j]);
+                        tmp[j] = from_float(alpha * thread_results[i + j] + beta * c_val, InputType{});
                     }
+
+                    // Store with float2 vectorized write
+                    memcpy(&x, &tmp[0], sizeof(InputType) * 4);
+                    *reinterpret_cast<float2 *>(&matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
+                                                                  thread_col_in_warp * TN + res_idx_n]) = x;
                 }
             }
         }
@@ -239,6 +234,7 @@ void sgemm_warptiling_multidtype(const torch::Tensor &matrix_a, const torch::Ten
             num_rows_a, num_cols_b, num_cols_a,
             alpha, d_matrix_a, d_matrix_b, beta, d_output_matrix);
 }
+
 void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta)
 {
