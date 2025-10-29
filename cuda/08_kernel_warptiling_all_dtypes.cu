@@ -13,7 +13,6 @@ Uses FP32 accumulation internally, converts to output dtype on store.
 #include "gemm_kernels.cuh"
 #include "utils.cuh"
 
-
 __device__ __forceinline__ float to_float(half x) { return __half2float(x); }
 __device__ __forceinline__ float to_float(nv_bfloat16 x) { return __bfloat162float(x); }
 __device__ __forceinline__ half from_float(float x, half) { return __float2half(x); }
@@ -29,40 +28,25 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
 {
     for (uint offset = 0; offset + row_stride_a <= BM; offset += row_stride_a)
     {
-        if constexpr (std::is_same_v<InputType, half>)
-        {
-            const half2 tmp_a = reinterpret_cast<const half2 *>(
-                &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 2])[0];
-            tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
-            tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
-        }
-        else if constexpr (std::is_same_v<InputType, nv_bfloat16>)
-        {
-            const nv_bfloat162 tmp_a = reinterpret_cast<const nv_bfloat162 *>(
-                &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 2])[0];
-            tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp_a.x;
-            tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp_a.y;
-        }
+        InputType tmp[4];
+        const float2 x = *reinterpret_cast<const float2 *>(
+            &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 4]);
+        memcpy(&tmp[0], &x, sizeof(InputType) * 4);
+        tile_a[(inner_col_a * 4 + 0) * BM + inner_row_a + offset] = tmp[0];
+        tile_a[(inner_col_a * 4 + 1) * BM + inner_row_a + offset] = tmp[1];
+        tile_a[(inner_col_a * 4 + 2) * BM + inner_row_a + offset] = tmp[2];
+        tile_a[(inner_col_a * 4 + 3) * BM + inner_row_a + offset] = tmp[3];
     }
 
     for (uint offset = 0; offset + row_stride_b <= BK; offset += row_stride_b)
     {
-        if constexpr (std::is_same_v<InputType, half>)
-        {
-            reinterpret_cast<half2 *>(
-                &tile_b[(inner_row_b + offset) * BN + inner_col_b * 2])[0] =
-                reinterpret_cast<const half2 *>(
-                    &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 2])[0];
-        }
-        else if constexpr (std::is_same_v<InputType, nv_bfloat16>)
-        {
-            reinterpret_cast<nv_bfloat162 *>(
-                &tile_b[(inner_row_b + offset) * BN + inner_col_b * 2])[0] =
-                reinterpret_cast<const nv_bfloat162 *>(
-                    &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 2])[0];
-        }
+        reinterpret_cast<float2 *>(
+            &tile_b[(inner_row_b + offset) * BN + inner_col_b * 4])[0] =
+            reinterpret_cast<const float2 *>(
+                &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 4])[0];
     }
 }
+
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WMITER, const int WNITER,
           const int WSUBM, const int WSUBN, const int TM, const int TN>
@@ -112,60 +96,6 @@ __device__ void process_warp_tile(InputType *register_m, InputType *register_n, 
     }
 }
 
-template <>
-__device__ void process_warp_tile<float, 128, 128, 16, 64, 64, 2, 4, 32, 16, 8, 4>(
-    float *register_m, float *register_n, float *thread_results,
-    const float *tile_a, const float *tile_b,
-    const uint warp_row, const uint warp_col,
-    const uint thread_row_in_warp, const uint thread_col_in_warp)
-{
-    constexpr int BM = 128, BN = 128, BK = 16;
-    constexpr int WM = 64, WN = 64;
-    constexpr int WMITER = 2, WNITER = 4;
-    constexpr int WSUBM = 32, WSUBN = 16;
-    constexpr int TM = 8, TN = 4;
-
-    for (uint dot_idx = 0; dot_idx < BK; ++dot_idx)
-    {
-        for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
-        {
-            for (uint i = 0; i < TM; ++i)
-            {
-                register_m[wsub_row_idx * TM + i] =
-                    tile_a[(dot_idx * BM) + warp_row * WM + wsub_row_idx * WSUBM +
-                           thread_row_in_warp * TM + i];
-            }
-        }
-
-        for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
-        {
-            for (uint i = 0; i < TN; ++i)
-            {
-                register_n[wsub_col_idx * TN + i] =
-                    tile_b[(dot_idx * BN) + warp_col * WN + wsub_col_idx * WSUBN +
-                           thread_col_in_warp * TN + i];
-            }
-        }
-
-        for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
-        {
-            for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
-            {
-                for (uint res_idx_m = 0; res_idx_m < TM; ++res_idx_m)
-                {
-                    for (uint res_idx_n = 0; res_idx_n < TN; ++res_idx_n)
-                    {
-                        thread_results[(wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
-                                       (wsub_col_idx * TN) + res_idx_n] +=
-                            register_m[wsub_row_idx * TM + res_idx_m] *
-                            register_n[wsub_col_idx * TN + res_idx_n];
-                    }
-                }
-            }
-        }
-    }
-}
-
 template <typename InputType, const int BM, const int BN, const int BK,
           const int WM, const int WN, const int WNITER, const int TM, const int TN,
           const int NUM_THREADS>
@@ -196,7 +126,8 @@ __global__ void __launch_bounds__(NUM_THREADS)
     matrix_b += block_col * BN;
     matrix_c += (block_row * BM + warp_row * WM) * num_cols_b + block_col * BN + warp_col * WN;
 
-    constexpr int VEC_SIZE = 2;
+    // Load 4 elements (128-bit) per thread for better bandwidth utilization
+    constexpr int VEC_SIZE = 4;
     const uint inner_row_a = threadIdx.x / (BK / VEC_SIZE);
     const uint inner_col_a = threadIdx.x % (BK / VEC_SIZE);
     constexpr uint row_stride_a = (NUM_THREADS * VEC_SIZE) / BK;
@@ -232,7 +163,7 @@ __global__ void __launch_bounds__(NUM_THREADS)
         for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
         {
             InputType *matrix_c_interim = matrix_c + (wsub_row_idx * WSUBM) * num_cols_b +
-                                      wsub_col_idx * WSUBN;
+                                          wsub_col_idx * WSUBN;
 
             for (uint res_idx_m = 0; res_idx_m < TM; res_idx_m += 1)
             {
@@ -246,16 +177,15 @@ __global__ void __launch_bounds__(NUM_THREADS)
                         float result = alpha * thread_results[res_idx];
                         matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
                                          thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
-
-                    } else
+                    }
+                    else
                     {
                         float c_val = to_float(matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                               thread_col_in_warp * TN + res_idx_n]);
+                                                                thread_col_in_warp * TN + res_idx_n]);
                         float result = alpha * thread_results[res_idx] + beta * c_val;
                         matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
                                          thread_col_in_warp * TN + res_idx_n] = from_float(result, InputType{});
                     }
-
                 }
             }
         }
