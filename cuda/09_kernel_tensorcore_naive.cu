@@ -1,7 +1,3 @@
-// Naive Tensor Core GEMM: C = alpha * A * B + beta * C
-// A, B are FP16/BF16; C is FP32. Uses WMMA API without block/warp tiling for simplicity.
-// Each warp processes a single 16x16 WMMA tile.
-
 #include <cassert>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -25,34 +21,23 @@ sgemm_tensorcore_naive_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
     const size_t warp_row = blockIdx.y * WMMA_M;
     const size_t warp_col = blockIdx.x * WMMA_N;
 
-    // Bounds check
-    if (warp_row >= num_rows_a || warp_col >= num_cols_b)
-    {
-        return;
-    }
-
     // Accumulator fragment for output (FP32)
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
     nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
-    // Iterate over K dimension in WMMA_K steps
     const size_t K_tiles = (num_cols_a + WMMA_K - 1) / WMMA_K;
 
     for (size_t k = 0; k < K_tiles; ++k)
     {
-        // Create fragments for A and B
         nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, InputType, nvcuda::wmma::row_major> a_frag;
         nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, InputType, nvcuda::wmma::row_major> b_frag;
 
-        // Load A tile: shape (WMMA_M x WMMA_K), stored at [warp_row, k*WMMA_K]
         const InputType *a_ptr = matrix_a + warp_row * num_cols_a + k * WMMA_K;
         nvcuda::wmma::load_matrix_sync(a_frag, a_ptr, num_cols_a);
 
-        // Load B tile: shape (WMMA_K x WMMA_N), stored at [k*WMMA_K, warp_col]
         const InputType *b_ptr = matrix_b + k * WMMA_K * num_cols_b + warp_col;
         nvcuda::wmma::load_matrix_sync(b_frag, b_ptr, num_cols_b);
 
-        // Perform matrix multiply-accumulate
         nvcuda::wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
     }
 

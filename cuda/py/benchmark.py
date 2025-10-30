@@ -367,15 +367,15 @@ def create_visualization(
         "CUDA 2D Block Tiling": "#19D3F3",
         "CUDA Vectorize": "#FF6692",
         "CUDA Warptiling": "#FEC200",
-        "CUDA Tensor Core Naive (FP16)": "#90EE90",
-        "CUDA Tensor Core Naive (BF16)": "#98FB98",
-        "CUDA Tensor Core Warptiled (FP16)": "#B6E880",
-        "CUDA Tensor Core Warptiled (BF16)": "#8DD3C7",
-        "CUDA Tensor Core Double Buffered (FP16)": "#A8D08D",
-        "CUDA Tensor Core Double Buffered (BF16)": "#7FB3D5",
-        "CUTLASS (FP16)": "#FF9999",
-        "CUTLASS (BF16)": "#FFB366",
-        "CUTLASS (FP32)": "#FF7F50",
+        "CUDA Tensor Core Naive (FP16)": "#00CED1",  # Dark Turquoise
+        "CUDA Tensor Core Naive (BF16)": "#00CED1",  # Dark Turquoise (same as FP16)
+        "CUDA Tensor Core Warptiled (FP16)": "#FF1493",  # Deep Pink
+        "CUDA Tensor Core Warptiled (BF16)": "#FF1493",  # Deep Pink (same as FP16)
+        "CUDA Tensor Core Double Buffered (FP16)": "#32CD32",  # Lime Green
+        "CUDA Tensor Core Double Buffered (BF16)": "#32CD32",  # Lime Green (same as FP16)
+        "CUTLASS (FP16)": "#9370DB",  # Medium Purple
+        "CUTLASS (BF16)": "#9370DB",  # Medium Purple (same as FP16)
+        "CUTLASS (FP32)": "#DC143C",  # Crimson
     }
 
     # Plot 1: TFLOPS

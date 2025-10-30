@@ -106,9 +106,20 @@ def run_vectorize_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Run warptiling CUDA GEMM kernel."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_warptiling_default(a, b, c, 1.0, 0.0)  # type: ignore
+    """Run warptiling CUDA GEMM kernel (dtype-aware)."""
+    # Create output tensor with same dtype as input
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
+
+    # Dispatch to appropriate warptiling kernel based on input dtype
+    if a.dtype == torch.float32:
+        cuda_kernels.sgemm_warptiling_default(a, b, c, 1.0, 0.0)  # type: ignore
+    elif a.dtype == torch.float16:
+        cuda_kernels.sgemm_warptiling_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    elif a.dtype == torch.bfloat16:
+        cuda_kernels.sgemm_warptiling_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    else:
+        raise ValueError(f"Unsupported dtype: {a.dtype}")
+
     return c
 
 
