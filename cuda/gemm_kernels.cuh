@@ -45,8 +45,18 @@ void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &m
 void sgemm_warptiling_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta);
 
-// SGEMM with Tensor Cores
+// SGEMM with Tensor Cores - Naive version
 // Input/output use same dtype (FP16 or BF16), like PyTorch behavior
+// Each warp processes a single 16x16 WMMA tile without block/warp tiling
+void sgemm_tensorcore_naive_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                 torch::Tensor &output_matrix, float alpha, float beta);
+
+void sgemm_tensorcore_naive_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                 torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with Tensor Cores - Optimized version
+// Input/output use same dtype (FP16 or BF16), like PyTorch behavior
+// Block and warp-level tiling with shared memory padding to reduce bank conflicts
 void sgemm_tensorcore_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta);
 

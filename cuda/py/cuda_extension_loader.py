@@ -74,9 +74,10 @@ def create_cuda_extension(verbose: bool = True):
     vectorize_cu = file_dir / "06_kernel_vectorize.cu"
     warptiling_cu = file_dir / "07_kernel_warptiling.cu"
     warptiling_multidtype_cu = file_dir / "08_kernel_warptiling_all_dtypes.cu"
-    tensorcore_cu = file_dir / "09_kernel_tensorcore.cu"
-    tensorcore_double_buffered_cu = file_dir / "10_kernel_tensorcore_double_buffered.cu"
-    cutlass_cu = file_dir / "11_kernel_cutlass.cu"
+    tensorcore_naive_cu = file_dir / "09_kernel_tensorcore_naive.cu"
+    tensorcore_cu = file_dir / "10_kernel_tensorcore_warptiled.cu"
+    tensorcore_double_buffered_cu = file_dir / "11_kernel_tensorcore_double_buffered.cu"
+    cutlass_cu = file_dir / "12_kernel_cutlass.cu"
     header_file = file_dir / "gemm_kernels.cuh"
     utils_header_file = file_dir / "utils.cuh"
 
@@ -90,7 +91,8 @@ def create_cuda_extension(verbose: bool = True):
         logger.info(f"   • Vectorize: {vectorize_cu}")
         logger.info(f"   • Warptiling (FP32): {warptiling_cu}")
         logger.info(f"   • Warptiling (Multi-Dtype): {warptiling_multidtype_cu}")
-        logger.info(f"   • Tensor Core: {tensorcore_cu}")
+        logger.info(f"   • Tensor Core (Naive): {tensorcore_naive_cu}")
+        logger.info(f"   • Tensor Core (Warptiled): {tensorcore_cu}")
         logger.info(
             f"   • Tensor Core Double Buffered: {tensorcore_double_buffered_cu}"
         )
@@ -109,6 +111,7 @@ def create_cuda_extension(verbose: bool = True):
     warptiling_multidtype_code, _, _ = get_cuda_code(
         str(warptiling_multidtype_cu), str(header_file), str(utils_header_file)
     )
+    tensorcore_naive_code, _, _ = get_cuda_code(str(tensorcore_naive_cu), str(header_file), str(utils_header_file))
     tensorcore_code, _, _ = get_cuda_code(str(tensorcore_cu), str(header_file), str(utils_header_file))
     tensorcore_double_buffered_code, _, _ = get_cuda_code(
         str(tensorcore_double_buffered_cu), str(header_file), str(utils_header_file)
@@ -170,6 +173,8 @@ def create_cuda_extension(verbose: bool = True):
         + "\n"
         + warptiling_multidtype_code
         + "\n"
+        + tensorcore_naive_code
+        + "\n"
         + tensorcore_code
         + "\n"
         + tensorcore_double_buffered_code
@@ -217,6 +222,8 @@ def create_cuda_extension(verbose: bool = True):
             "sgemm_warptiling_default",
             "sgemm_warptiling_fp16",
             "sgemm_warptiling_bf16",
+            "sgemm_tensorcore_naive_fp16",
+            "sgemm_tensorcore_naive_bf16",
             "sgemm_tensorcore_fp16",
             "sgemm_tensorcore_bf16",
             "sgemm_tensorcore_double_buffered_fp16",

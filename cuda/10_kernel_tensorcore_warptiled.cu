@@ -22,10 +22,10 @@ template <typename InputType,
           const int WMMA_N = 16,
           const int WMMA_K = 16>
 __global__ void
-sgemm_tensorcore_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
-                        float alpha, const InputType *matrix_a,
-                        const InputType *matrix_b, float beta,
-                        float *matrix_c)
+sgemm_tensorcore_warptiled_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
+                                  float alpha, const InputType *matrix_a,
+                                  const InputType *matrix_b, float beta,
+                                  float *matrix_c)
 {
     const uint warp_id = threadIdx.x / 32;
     const uint warp_row = warp_id / BLOCK_COL_WARPS;
@@ -140,9 +140,9 @@ sgemm_tensorcore_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
 }
 
 template <typename InputType>
-void sgemm_tensorcore_impl(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                           torch::Tensor &output_matrix, float alpha, float beta,
-                           torch::ScalarType expected_dtype)
+void sgemm_tensorcore_warptiled_impl(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                     torch::Tensor &output_matrix, float alpha, float beta,
+                                     torch::ScalarType expected_dtype)
 {
     TORCH_CHECK(matrix_a.device().is_cuda() && matrix_b.device().is_cuda(), "Matrices must be on CUDA device");
     TORCH_CHECK(matrix_a.dtype() == expected_dtype && matrix_b.dtype() == expected_dtype, "Input dtype mismatch");
@@ -170,7 +170,7 @@ void sgemm_tensorcore_impl(const torch::Tensor &matrix_a, const torch::Tensor &m
     dim3 grid_dim(ceil_div(num_cols_b, BN), ceil_div(num_rows_a, BM));
     dim3 block_dim(BLOCK_ROW_WARPS * BLOCK_COL_WARPS * 32);
 
-    sgemm_tensorcore_kernel<InputType, BLOCK_ROW_WARPS, BLOCK_COL_WARPS, WARP_ROW_TILES, WARP_COL_TILES, WMMA_M, WMMA_N, WMMA_K>
+    sgemm_tensorcore_warptiled_kernel<InputType, BLOCK_ROW_WARPS, BLOCK_COL_WARPS, WARP_ROW_TILES, WARP_COL_TILES, WMMA_M, WMMA_N, WMMA_K>
         <<<grid_dim, block_dim>>>(
             num_rows_a, num_cols_b, num_cols_a,
             alpha, d_matrix_a, d_matrix_b, beta, d_output_matrix);
@@ -179,11 +179,11 @@ void sgemm_tensorcore_impl(const torch::Tensor &matrix_a, const torch::Tensor &m
 void sgemm_tensorcore_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta)
 {
-    sgemm_tensorcore_impl<half>(matrix_a, matrix_b, output_matrix, alpha, beta, torch::kFloat16);
+    sgemm_tensorcore_warptiled_impl<half>(matrix_a, matrix_b, output_matrix, alpha, beta, torch::kFloat16);
 }
 
 void sgemm_tensorcore_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta)
 {
-    sgemm_tensorcore_impl<nv_bfloat16>(matrix_a, matrix_b, output_matrix, alpha, beta, torch::kBFloat16);
+    sgemm_tensorcore_warptiled_impl<nv_bfloat16>(matrix_a, matrix_b, output_matrix, alpha, beta, torch::kBFloat16);
 }

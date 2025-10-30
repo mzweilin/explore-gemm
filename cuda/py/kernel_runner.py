@@ -21,8 +21,10 @@ Available kernels:
     - blocktiling_2d: CUDA GEMM with 2D block tiling
     - vectorize: CUDA GEMM with vectorized memory access
     - warptiling: CUDA GEMM with warp-level tiling (most optimized FP32)
-    - tensorcore_fp16: CUDA Tensor Core with FP16 inputs
-    - tensorcore_bf16: CUDA Tensor Core with BF16 inputs
+    - tensorcore_naive_fp16: Naive Tensor Core with FP16 inputs
+    - tensorcore_naive_bf16: Naive Tensor Core with BF16 inputs
+    - tensorcore_fp16: CUDA Tensor Core (warptiled) with FP16 inputs
+    - tensorcore_bf16: CUDA Tensor Core (warptiled) with BF16 inputs
     - tensorcore_db_fp16: CUDA Tensor Core with double buffering (FP16)
     - tensorcore_db_bf16: CUDA Tensor Core with double buffering (BF16)
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs
@@ -110,15 +112,29 @@ def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
+def run_tensorcore_naive_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run naive Tensor Core CUDA GEMM kernel with FP16 inputs."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_naive_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def run_tensorcore_naive_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Run naive Tensor Core CUDA GEMM kernel with BF16 inputs."""
+    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_naive_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
 def run_tensorcore_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Run Tensor Core CUDA GEMM kernel with FP16 inputs."""
+    """Run optimized Tensor Core CUDA GEMM kernel with FP16 inputs."""
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
 def run_tensorcore_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Run Tensor Core CUDA GEMM kernel with BF16 inputs."""
+    """Run optimized Tensor Core CUDA GEMM kernel with BF16 inputs."""
     c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
@@ -189,6 +205,8 @@ def run_kernel_n_times(
             "blocktiling_2d",
             "vectorize",
             "warptiling",
+            "tensorcore_naive_fp16",
+            "tensorcore_naive_bf16",
             "tensorcore_fp16",
             "tensorcore_bf16",
             "tensorcore_db_fp16",
@@ -249,6 +267,8 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "blocktiling_2d": run_blocktiling_2d_kernel,
         "vectorize": run_vectorize_kernel,
         "warptiling": run_warptiling_kernel,
+        "tensorcore_naive_fp16": run_tensorcore_naive_fp16_kernel,
+        "tensorcore_naive_bf16": run_tensorcore_naive_bf16_kernel,
         "tensorcore_fp16": run_tensorcore_fp16_kernel,
         "tensorcore_bf16": run_tensorcore_bf16_kernel,
         "tensorcore_db_fp16": run_tensorcore_db_fp16_kernel,
@@ -259,12 +279,12 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     }
 
     # Auto-detect required dtype for Tensor Core and CUTLASS kernels if not specified
-    if kernel in ["tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"] and dtype == "float32":
+    if kernel in ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"] and dtype == "float32":
         logger.warning(
             f"⚠️  {kernel} requires float16 dtype, auto-switching to float16"
         )
         dtype = "float16"
-    elif kernel in ["tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"] and dtype == "float32":
+    elif kernel in ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"] and dtype == "float32":
         logger.warning(
             f"⚠️  {kernel} requires bfloat16 dtype, auto-switching to bfloat16"
         )

@@ -145,6 +145,30 @@ def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
+def cuda_tensorcore_naive_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for naive Tensor Core CUDA GEMM kernel with FP16 inputs.
+
+    This is a baseline implementation without optimizations.
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_naive_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
+def cuda_tensorcore_naive_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for naive Tensor Core CUDA GEMM kernel with BF16 inputs.
+
+    This is a baseline implementation without optimizations.
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_naive_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
 def cuda_tensorcore_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs.
 
@@ -343,8 +367,10 @@ def create_visualization(
         "CUDA 2D Block Tiling": "#19D3F3",
         "CUDA Vectorize": "#FF6692",
         "CUDA Warptiling": "#FEC200",
-        "CUDA Tensor Core (FP16)": "#B6E880",
-        "CUDA Tensor Core (BF16)": "#8DD3C7",
+        "CUDA Tensor Core Naive (FP16)": "#90EE90",
+        "CUDA Tensor Core Naive (BF16)": "#98FB98",
+        "CUDA Tensor Core Warptiled (FP16)": "#B6E880",
+        "CUDA Tensor Core Warptiled (BF16)": "#8DD3C7",
         "CUDA Tensor Core Double Buffered (FP16)": "#A8D08D",
         "CUDA Tensor Core Double Buffered (BF16)": "#7FB3D5",
         "CUTLASS (FP16)": "#FF9999",
@@ -933,8 +959,14 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             all_kernels.extend(
                 [
                     (
+                        "tensorcore_naive_fp16",
+                        "CUDA Tensor Core Naive (FP16)",
+                        cuda_tensorcore_naive_fp16_gemm,
+                        "🟢",
+                    ),
+                    (
                         "tensorcore_fp16",
-                        "CUDA Tensor Core (FP16)",
+                        "CUDA Tensor Core Warptiled (FP16)",
                         cuda_tensorcore_fp16_gemm,
                         "🚀",
                     ),
@@ -956,8 +988,14 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             all_kernels.extend(
                 [
                     (
+                        "tensorcore_naive_bf16",
+                        "CUDA Tensor Core Naive (BF16)",
+                        cuda_tensorcore_naive_bf16_gemm,
+                        "🟢",
+                    ),
+                    (
                         "tensorcore_bf16",
-                        "CUDA Tensor Core (BF16)",
+                        "CUDA Tensor Core Warptiled (BF16)",
                         cuda_tensorcore_bf16_gemm,
                         "🚀",
                     ),
@@ -1183,11 +1221,11 @@ def main(kernels, dtype):
         # Add Tensor Core and CUTLASS kernels for FP16/BF16
         if dtype == "float16":
             kernels_to_run.extend(
-                ["tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"]
+                ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"]
             )
         elif dtype == "bfloat16":
             kernels_to_run.extend(
-                ["tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"]
+                ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"]
             )
     else:
         kernels_to_run = list(kernels)
