@@ -12,6 +12,7 @@ __device__ __forceinline__ float to_float(const nv_bfloat16 x) { return __bfloat
 __device__ __forceinline__ half from_float(const float x, half) { return __float2half(x); }
 __device__ __forceinline__ nv_bfloat16 from_float(const float x, nv_bfloat16) { return __float2bfloat16(x); }
 
+
 template <typename InputType, const int BM, const int BN, const int BK,
           const int row_stride_a, const int row_stride_b>
 __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
@@ -20,24 +21,30 @@ __device__ void load_from_gmem(int num_cols_b, int num_cols_a,
                                int inner_row_a, int inner_col_a,
                                int inner_row_b, int inner_col_b)
 {
-    for (uint offset = 0; offset + row_stride_a <= BM; offset += row_stride_a)
+    using VecT = typename std::conditional<std::is_same<InputType, half>::value, half2, nv_bfloat162>::type;
+
+    // Load A matrix: load 2 elements per thread (vectorized), transpose to column-major in shared memory
+    for (uint offset = 0; offset < BM; offset += row_stride_a)
     {
-        InputType tmp[4];
-        const float2 x = *reinterpret_cast<const float2 *>(
-            &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 4]);
-        memcpy(&tmp[0], &x, sizeof(InputType) * 4);
-        tile_a[(inner_col_a * 4 + 0) * BM + inner_row_a + offset] = tmp[0];
-        tile_a[(inner_col_a * 4 + 1) * BM + inner_row_a + offset] = tmp[1];
-        tile_a[(inner_col_a * 4 + 2) * BM + inner_row_a + offset] = tmp[2];
-        tile_a[(inner_col_a * 4 + 3) * BM + inner_row_a + offset] = tmp[3];
+        const VecT *vec_ptr = reinterpret_cast<const VecT *>(
+            &matrix_a[(inner_row_a + offset) * num_cols_a + inner_col_a * 2]);
+        VecT vec_val = *vec_ptr;
+
+        // Unpack vector and store in transposed layout
+        InputType tmp[2];
+        reinterpret_cast<VecT*>(tmp)[0] = vec_val;
+        tile_a[(inner_col_a * 2 + 0) * BM + inner_row_a + offset] = tmp[0];
+        tile_a[(inner_col_a * 2 + 1) * BM + inner_row_a + offset] = tmp[1];
     }
 
-    for (uint offset = 0; offset + row_stride_b <= BK; offset += row_stride_b)
+    // Load B matrix: contiguous load, vectorized
+    for (uint offset = 0; offset < BK; offset += row_stride_b)
     {
-        reinterpret_cast<float2 *>(
-            &tile_b[(inner_row_b + offset) * BN + inner_col_b * 4])[0] =
-            reinterpret_cast<const float2 *>(
-                &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 4])[0];
+        const VecT *src_vec = reinterpret_cast<const VecT *>(
+            &matrix_b[(inner_row_b + offset) * num_cols_b + inner_col_b * 2]);
+        VecT *dst_vec = reinterpret_cast<VecT *>(
+            &tile_b[(inner_row_b + offset) * BN + inner_col_b * 2]);
+        *dst_vec = *src_vec;
     }
 }
 
@@ -120,8 +127,8 @@ __global__ void __launch_bounds__(NUM_THREADS)
     matrix_b += block_col * BN;
     matrix_c += (block_row * BM + warp_row * WM) * num_cols_b + block_col * BN + warp_col * WN;
 
-    // Load 4 elements (128-bit) per thread for better bandwidth utilization
-    constexpr int VEC_SIZE = 4;
+    // Load 2 elements (64-bit with half2/nv_bfloat162) per thread for better bandwidth utilization
+    constexpr int VEC_SIZE = 2;
     const uint inner_row_a = threadIdx.x / (BK / VEC_SIZE);
     const uint inner_col_a = threadIdx.x % (BK / VEC_SIZE);
     constexpr uint row_stride_a = (NUM_THREADS * VEC_SIZE) / BK;
@@ -152,7 +159,10 @@ __global__ void __launch_bounds__(NUM_THREADS)
         __syncthreads();
     }
 
-    // Write out results with float2 vectorized stores
+    // Write out results with vectorized stores (half2/nv_bfloat162)
+    using VecT = typename std::conditional<std::is_same<InputType, half>::value, half2, nv_bfloat162>::type;
+    constexpr int STORE_VEC_SIZE = 2;
+
     for (uint wsub_row_idx = 0; wsub_row_idx < WMITER; ++wsub_row_idx)
     {
         for (uint wsub_col_idx = 0; wsub_col_idx < WNITER; ++wsub_col_idx)
@@ -160,27 +170,26 @@ __global__ void __launch_bounds__(NUM_THREADS)
             InputType *matrix_c_interim = matrix_c + (wsub_row_idx * WSUBM) * num_cols_b +
                                           wsub_col_idx * WSUBN;
 
-            for (uint res_idx_m = 0; res_idx_m < TM; res_idx_m += 1)
+            for (uint res_idx_m = 0; res_idx_m < TM; ++res_idx_m)
             {
-                for (uint res_idx_n = 0; res_idx_n < TN; res_idx_n += 4)
+                for (uint res_idx_n = 0; res_idx_n < TN; res_idx_n += STORE_VEC_SIZE)
                 {
-                    InputType tmp[4];
-                    float2 x;
+                    InputType tmp[STORE_VEC_SIZE];
                     const int i = (wsub_row_idx * TM + res_idx_m) * (WNITER * TN) +
                                   wsub_col_idx * TN + res_idx_n;
 
-                    // Compute all 4 values
-                    for (int j = 0; j < 4; ++j)
+                    // Compute all values in vector
+                    for (int j = 0; j < STORE_VEC_SIZE; ++j)
                     {
                         float c_val = to_float(matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
                                                                 thread_col_in_warp * TN + res_idx_n + j]);
                         tmp[j] = from_float(alpha * thread_results[i + j] + beta * c_val, InputType{});
                     }
 
-                    // Store with float2 vectorized write
-                    memcpy(&x, &tmp[0], sizeof(InputType) * 4);
-                    *reinterpret_cast<float2 *>(&matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
-                                                                  thread_col_in_warp * TN + res_idx_n]) = x;
+                    // Store with vectorized write (half2 or nv_bfloat162)
+                    VecT *dst_vec = reinterpret_cast<VecT *>(&matrix_c_interim[(thread_row_in_warp * TM + res_idx_m) * num_cols_b +
+                                                                              thread_col_in_warp * TN + res_idx_n]);
+                    *dst_vec = reinterpret_cast<VecT*>(tmp)[0];
                 }
             }
         }
