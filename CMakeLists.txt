@@ -102,6 +102,9 @@ target_link_libraries(test_gemm_tensorcore "${TORCH_LIBRARIES}")
 add_executable(test_gemm_tensorcore_double_buffered ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_double_buffered.cpp ${gpu_source_files})
 target_link_libraries(test_gemm_tensorcore_double_buffered "${TORCH_LIBRARIES}")
 
+add_executable(test_gemm_tensorcore_async ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_async.cpp ${gpu_source_files})
+target_link_libraries(test_gemm_tensorcore_async "${TORCH_LIBRARIES}")
+
 # CUTLASS test (only build if CUTLASS is available)
 if(CUTLASS_AVAILABLE)
     add_executable(test_gemm_cutlass ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass.cpp ${gpu_source_files})
@@ -121,6 +124,7 @@ add_test(NAME test_gemm_warptiling_all_dtypes COMMAND test_gemm_warptiling_all_d
 add_test(NAME test_gemm_tensorcore_naive COMMAND test_gemm_tensorcore_naive)
 add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
 add_test(NAME test_gemm_tensorcore_double_buffered COMMAND test_gemm_tensorcore_double_buffered)
+add_test(NAME test_gemm_tensorcore_async COMMAND test_gemm_tensorcore_async)
 
 if(CUTLASS_AVAILABLE)
     add_test(NAME test_gemm_cutlass COMMAND test_gemm_cutlass)

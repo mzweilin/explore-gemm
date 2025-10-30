@@ -84,6 +84,7 @@ def fp32_kernel_name(request):
         "tensorcore_naive_fp16",
         "tensorcore_fp16",
         "tensorcore_db_fp16",
+        "tensorcore_async_fp16",
         "cutlass_fp16",
     ]
 )
@@ -98,6 +99,7 @@ def fp16_kernel_name(request):
         "tensorcore_naive_bf16",
         "tensorcore_bf16",
         "tensorcore_db_bf16",
+        "tensorcore_async_bf16",
         "cutlass_bf16",
     ]
 )
@@ -139,6 +141,10 @@ def run_kernel(kernel_name, cuda_kernels, a, b, c):
         cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c, 1.0, 0.0)
     elif kernel_name == "tensorcore_db_bf16":
         cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c, 1.0, 0.0)
+    elif kernel_name == "tensorcore_async_fp16":
+        cuda_kernels.sgemm_tensorcore_async_fp16(a, b, c, 1.0, 0.0)
+    elif kernel_name == "tensorcore_async_bf16":
+        cuda_kernels.sgemm_tensorcore_async_bf16(a, b, c, 1.0, 0.0)
     elif kernel_name == "cutlass_fp16":
         cuda_kernels.sgemm_cutlass_fp16(a, b, c, 1.0, 0.0)
     elif kernel_name == "cutlass_bf16":

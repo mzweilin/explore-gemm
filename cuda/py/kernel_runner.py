@@ -28,6 +28,8 @@ Available kernels:
     - tensorcore_bf16: CUDA Tensor Core (warptiled) with BF16 inputs
     - tensorcore_db_fp16: CUDA Tensor Core with double buffering (FP16)
     - tensorcore_db_bf16: CUDA Tensor Core with double buffering (BF16)
+    - tensorcore_async_fp16: CUDA Tensor Core with async pipeline (FP16)
+    - tensorcore_async_bf16: CUDA Tensor Core with async pipeline (BF16)
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs
     - cutlass_fp32: CUTLASS library GEMM with FP32 inputs (SIMT)
@@ -156,6 +158,18 @@ def run_tensorcore_db_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Ten
     return c
 
 
+def run_tensorcore_async_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    """Run Tensor Core CUDA GEMM kernel with FP16 inputs and async pipeline."""
+    cuda_kernels.sgemm_tensorcore_async_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
+def run_tensorcore_async_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    """Run Tensor Core CUDA GEMM kernel with BF16 inputs and async pipeline."""
+    cuda_kernels.sgemm_tensorcore_async_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
+
+
 def run_cutlass_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run CUTLASS GEMM kernel with FP16 inputs."""
     cuda_kernels.sgemm_cutlass_fp16(a, b, c, 1.0, 0.0)  # type: ignore
@@ -212,6 +226,8 @@ def run_kernel_n_times(
             "tensorcore_bf16",
             "tensorcore_db_fp16",
             "tensorcore_db_bf16",
+            "tensorcore_async_fp16",
+            "tensorcore_async_bf16",
             "cutlass_fp16",
             "cutlass_bf16",
             "cutlass_fp32",
@@ -275,6 +291,8 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "tensorcore_bf16": run_tensorcore_bf16_kernel,
         "tensorcore_db_fp16": run_tensorcore_db_fp16_kernel,
         "tensorcore_db_bf16": run_tensorcore_db_bf16_kernel,
+        "tensorcore_async_fp16": run_tensorcore_async_fp16_kernel,
+        "tensorcore_async_bf16": run_tensorcore_async_bf16_kernel,
         "cutlass_fp16": run_cutlass_fp16_kernel,
         "cutlass_bf16": run_cutlass_bf16_kernel,
         "cutlass_fp32": run_cutlass_fp32_kernel,
@@ -287,6 +305,7 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
             "tensorcore_naive_fp16",
             "tensorcore_fp16",
             "tensorcore_db_fp16",
+            "tensorcore_async_fp16",
             "cutlass_fp16",
         ]
         and dtype == "float32"
@@ -299,6 +318,7 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
             "tensorcore_naive_bf16",
             "tensorcore_bf16",
             "tensorcore_db_bf16",
+            "tensorcore_async_bf16",
             "cutlass_bf16",
         ]
         and dtype == "float32"
@@ -350,6 +370,7 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     elif kernel in ["tensorcore_naive_fp16", "tensorcore_naive_bf16",
                     "tensorcore_fp16", "tensorcore_bf16",
                     "tensorcore_db_fp16", "tensorcore_db_bf16",
+                    "tensorcore_async_fp16", "tensorcore_async_bf16",
                     "cutlass_fp16", "cutlass_bf16", "cutlass_fp32"]:
         output_dtype = torch.float32
     else:

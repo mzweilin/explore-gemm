@@ -36,6 +36,8 @@ Available kernels:
     - tensorcore_bf16: CUDA Tensor Core with BF16 inputs (requires -d bfloat16)
     - tensorcore_db_fp16: CUDA Tensor Core with double buffering (FP16)
     - tensorcore_db_bf16: CUDA Tensor Core with double buffering (BF16)
+    - tensorcore_async_fp16: CUDA Tensor Core with async pipeline (FP16)
+    - tensorcore_async_bf16: CUDA Tensor Core with async pipeline (BF16)
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs (requires -d float16)
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs (requires -d bfloat16)
 
@@ -217,6 +219,32 @@ def cuda_tensorcore_db_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tens
     # Tensor Cores output FP32 for precision
     c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
+def cuda_tensorcore_async_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs and async pipeline.
+
+    Async pipeline uses cp.async for maximum memory/compute overlap.
+    Requires SM 8.0+ (Ampere and newer).
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_async_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
+def cuda_tensorcore_async_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs and async pipeline.
+
+    Async pipeline uses cp.async for maximum memory/compute overlap.
+    Requires SM 8.0+ (Ampere and newer).
+    """
+    # Tensor Cores output FP32 for precision
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_tensorcore_async_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
 
@@ -977,6 +1005,12 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         "🔥",
                     ),
                     (
+                        "tensorcore_async_fp16",
+                        "CUDA Tensor Core Async (FP16)",
+                        cuda_tensorcore_async_fp16_gemm,
+                        "💨",
+                    ),
+                    (
                         "cutlass_fp16",
                         "CUTLASS (FP16)",
                         cuda_cutlass_fp16_gemm,
@@ -1004,6 +1038,12 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         "CUDA Tensor Core Double Buffered (BF16)",
                         cuda_tensorcore_db_bf16_gemm,
                         "🔥",
+                    ),
+                    (
+                        "tensorcore_async_bf16",
+                        "CUDA Tensor Core Async (BF16)",
+                        cuda_tensorcore_async_bf16_gemm,
+                        "💨",
                     ),
                     (
                         "cutlass_bf16",
@@ -1161,6 +1201,8 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             "tensorcore_bf16",
             "tensorcore_db_fp16",
             "tensorcore_db_bf16",
+            "tensorcore_async_fp16",
+            "tensorcore_async_bf16",
             "cutlass_fp16",
             "cutlass_bf16",
             "cutlass_fp32",
@@ -1221,11 +1263,11 @@ def main(kernels, dtype):
         # Add Tensor Core and CUTLASS kernels for FP16/BF16
         if dtype == "float16":
             kernels_to_run.extend(
-                ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"]
+                ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "tensorcore_async_fp16", "cutlass_fp16"]
             )
         elif dtype == "bfloat16":
             kernels_to_run.extend(
-                ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"]
+                ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "tensorcore_async_bf16", "cutlass_bf16"]
             )
     else:
         kernels_to_run = list(kernels)

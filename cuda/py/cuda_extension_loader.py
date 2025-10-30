@@ -88,7 +88,8 @@ def create_cuda_extension(verbose: bool = True):
     tensorcore_naive_cu = file_dir / "09_kernel_tensorcore_naive.cu"
     tensorcore_cu = file_dir / "10_kernel_tensorcore_warptiled.cu"
     tensorcore_double_buffered_cu = file_dir / "11_kernel_tensorcore_double_buffered.cu"
-    cutlass_cu = file_dir / "12_kernel_cutlass.cu"
+    tensorcore_async_cu = file_dir / "12_kernel_tensorcore_async.cu"
+    cutlass_cu = file_dir / "13_kernel_cutlass.cu"
     header_file = file_dir / "gemm_kernels.cuh"
     utils_header_file = file_dir / "utils.cuh"
 
@@ -107,6 +108,7 @@ def create_cuda_extension(verbose: bool = True):
         logger.info(
             f"   • Tensor Core Double Buffered: {tensorcore_double_buffered_cu}"
         )
+        logger.info(f"   • Tensor Core Async: {tensorcore_async_cu}")
         logger.info(f"   • CUTLASS: {cutlass_cu}")
         logger.info(f"   • Header: {header_file}")
         logger.info(f"   • Utils Header: {utils_header_file}")
@@ -126,6 +128,9 @@ def create_cuda_extension(verbose: bool = True):
     tensorcore_code, _, _ = get_cuda_code(str(tensorcore_cu), str(header_file), str(utils_header_file))
     tensorcore_double_buffered_code, _, _ = get_cuda_code(
         str(tensorcore_double_buffered_cu), str(header_file), str(utils_header_file)
+    )
+    tensorcore_async_code, _, _ = get_cuda_code(
+        str(tensorcore_async_cu), str(header_file), str(utils_header_file)
     )
     cutlass_code, header_code, utils_code = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
 
@@ -190,6 +195,8 @@ def create_cuda_extension(verbose: bool = True):
         + "\n"
         + tensorcore_double_buffered_code
         + "\n"
+        + tensorcore_async_code
+        + "\n"
         + cutlass_code
     )
 
@@ -239,6 +246,8 @@ def create_cuda_extension(verbose: bool = True):
             "sgemm_tensorcore_bf16",
             "sgemm_tensorcore_double_buffered_fp16",
             "sgemm_tensorcore_double_buffered_bf16",
+            "sgemm_tensorcore_async_fp16",
+            "sgemm_tensorcore_async_bf16",
             "sgemm_cutlass_fp16",
             "sgemm_cutlass_bf16",
             "sgemm_cutlass_fp32",
