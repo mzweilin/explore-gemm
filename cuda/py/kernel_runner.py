@@ -14,6 +14,7 @@ Usage:
     ncu --metrics all python kernel_runner.py -k global_mem_coalesce -n 100 -s 512
 
 Available kernels:
+    - pytorch: PyTorch baseline implementation (torch.matmul)
     - naive: Naive CUDA GEMM kernel
     - global_mem_coalesce: CUDA GEMM with global memory coalescing
     - shared_mem: CUDA GEMM with shared memory tiling
@@ -63,53 +64,49 @@ cuda_kernels = create_cuda_extension(verbose=False)
 logger.success("✅ CUDA kernels loaded successfully!")
 
 
-def run_naive_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_pytorch_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    """Run PyTorch baseline implementation."""
+    return torch.matmul(a, b, out=c)
+
+
+def run_naive_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run naive CUDA GEMM kernel."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_naive(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_coalesced_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_coalesced_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run coalesced global memory CUDA GEMM kernel."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_global_mem_coalesce(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_shared_mem_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_shared_mem_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run shared memory CUDA GEMM kernel."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_shared_mem(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_blocktiling_1d_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_blocktiling_1d_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run 1D block tiling CUDA GEMM kernel."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_blocktiling_1d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_blocktiling_2d_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_blocktiling_2d_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run 2D block tiling CUDA GEMM kernel."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_blocktiling_2d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_vectorize_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_vectorize_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run vectorized CUDA GEMM kernel."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_vectorize(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run warptiling CUDA GEMM kernel (dtype-aware)."""
-    # Create output tensor with same dtype as input
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
-
     # Dispatch to appropriate warptiling kernel based on input dtype
     if a.dtype == torch.float32:
         cuda_kernels.sgemm_warptiling_default(a, b, c, 1.0, 0.0)  # type: ignore
@@ -123,80 +120,72 @@ def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
-def run_tensorcore_naive_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_naive_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run naive Tensor Core CUDA GEMM kernel with FP16 inputs."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_naive_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_naive_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_naive_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run naive Tensor Core CUDA GEMM kernel with BF16 inputs."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_naive_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run optimized Tensor Core CUDA GEMM kernel with FP16 inputs."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run optimized Tensor Core CUDA GEMM kernel with BF16 inputs."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_db_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_db_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run Tensor Core CUDA GEMM kernel with FP16 inputs and double buffering."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_db_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_db_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run Tensor Core CUDA GEMM kernel with BF16 inputs and double buffering."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_cutlass_fp16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_cutlass_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run CUTLASS GEMM kernel with FP16 inputs."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_cutlass_bf16_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_cutlass_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run CUTLASS GEMM kernel with BF16 inputs."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_cutlass_fp32_kernel(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def run_cutlass_fp32_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Run CUTLASS GEMM kernel with FP32 inputs."""
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_fp32(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
 def run_kernel_n_times(
-    kernel_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    kernel_fn: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor],
     a: torch.Tensor,
     b: torch.Tensor,
+    c: torch.Tensor,
     n: int,
 ) -> None:
     """Run a kernel N times for profiling."""
     logger.info(f"⚡ Running kernel {n} times...")
 
     for _ in range(n):
-        _ = kernel_fn(a, b)
+        _ = kernel_fn(a, b, c)
 
     # Synchronize to ensure all kernels complete
     torch.cuda.synchronize()
@@ -209,6 +198,7 @@ def run_kernel_n_times(
     "--kernel",
     type=click.Choice(
         [
+            "pytorch",
             "naive",
             "global_mem_coalesce",
             "shared_mem",
@@ -271,6 +261,7 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     """
     # Map kernel names to functions
     kernel_map = {
+        "pytorch": run_pytorch_kernel,
         "naive": run_naive_kernel,
         "global_mem_coalesce": run_coalesced_kernel,
         "shared_mem": run_shared_mem_kernel,
@@ -290,12 +281,28 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     }
 
     # Auto-detect required dtype for Tensor Core and CUTLASS kernels if not specified
-    if kernel in ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "cutlass_fp16"] and dtype == "float32":
-        logger.warning(
-            f"⚠️  {kernel} requires float16 dtype, auto-switching to float16"
-        )
+    if (
+        kernel
+        in [
+            "tensorcore_naive_fp16",
+            "tensorcore_fp16",
+            "tensorcore_db_fp16",
+            "cutlass_fp16",
+        ]
+        and dtype == "float32"
+    ):
+        logger.warning(f"⚠️  {kernel} requires float16 dtype, auto-switching to float16")
         dtype = "float16"
-    elif kernel in ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "cutlass_bf16"] and dtype == "float32":
+    elif (
+        kernel
+        in [
+            "tensorcore_naive_bf16",
+            "tensorcore_bf16",
+            "tensorcore_db_bf16",
+            "cutlass_bf16",
+        ]
+        and dtype == "float32"
+    ):
         logger.warning(
             f"⚠️  {kernel} requires bfloat16 dtype, auto-switching to bfloat16"
         )
@@ -320,15 +327,42 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     logger.info(f"🖥️  GPU: {torch.cuda.get_device_name(0)}")
     logger.info(f"{'='*60}\n")
 
+    # Validate dtype compatibility with kernel
+    fp32_only_kernels = ["naive", "global_mem_coalesce", "shared_mem",
+                         "blocktiling_1d", "blocktiling_2d", "vectorize"]
+
+    if kernel in fp32_only_kernels and dtype != "float32":
+        logger.error(f"❌ Kernel '{kernel}' only supports float32, but {dtype} was specified")
+        logger.error(f"   Please use --dtype=float32 or choose a different kernel")
+        return
+
     # Create input tensors with specified dtype
     logger.info("💾 Allocating input tensors...")
     a = torch.randn((M, K), device="cuda", dtype=torch_dtype)
     b = torch.randn((K, N), device="cuda", dtype=torch_dtype)
-    logger.success("✅ Input tensors allocated")
+
+    # Determine output dtype based on kernel type
+    # - PyTorch and warptiling: output matches input dtype
+    # - Tensor Core and CUTLASS kernels: output FP32 (they accumulate in FP32)
+    # - FP32-only kernels: output FP32
+    if kernel in ["pytorch", "warptiling"]:
+        output_dtype = torch_dtype
+    elif kernel in ["tensorcore_naive_fp16", "tensorcore_naive_bf16",
+                    "tensorcore_fp16", "tensorcore_bf16",
+                    "tensorcore_db_fp16", "tensorcore_db_bf16",
+                    "cutlass_fp16", "cutlass_bf16", "cutlass_fp32"]:
+        output_dtype = torch.float32
+    else:
+        # FP32-only kernels
+        output_dtype = torch.float32
+
+    c = torch.empty((M, N), device="cuda", dtype=output_dtype)
+    logger.success("✅ Input and output tensors allocated")
+    logger.info(f"   Input dtype: {torch_dtype}, Output dtype: {output_dtype}")
 
     # Run the kernel N times
     logger.info("")
-    run_kernel_n_times(kernel_fn, a, b, iterations)
+    run_kernel_n_times(kernel_fn, a, b, c, iterations)
 
     logger.info(f"\n{'='*60}")
     logger.success("🎉 Done!")

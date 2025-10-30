@@ -9,7 +9,18 @@ from typing import Tuple
 
 import torch
 from torch.utils.cpp_extension import load_inline
-from loguru import logger
+
+# Try to import loguru for nicer logging, fall back to print
+try:
+    from loguru import logger
+except ImportError:
+    # Fallback logger if loguru is not installed
+    class SimpleLogger:
+        def info(self, msg): print(f"INFO: {msg}")
+        def success(self, msg): print(f"SUCCESS: {msg}")
+        def warning(self, msg): print(f"WARNING: {msg}")
+        def error(self, msg): print(f"ERROR: {msg}")
+    logger = SimpleLogger()
 
 
 def get_cuda_code(cuda_file: str, header_file: str, utils_header_file: str) -> Tuple[str, str, str]:

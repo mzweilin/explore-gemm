@@ -82,7 +82,7 @@ cuda_kernels = create_cuda_extension(verbose=True)
 def cuda_naive_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for naive CUDA GEMM kernel."""
     # Create output tensor on CUDA device
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_naive(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
@@ -90,7 +90,7 @@ def cuda_naive_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def cuda_coalesced_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for coalesced global memory CUDA GEMM kernel."""
     # Create output tensor on CUDA device
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_global_mem_coalesce(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
@@ -98,7 +98,7 @@ def cuda_coalesced_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def cuda_shared_mem_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for shared memory CUDA GEMM kernel."""
     # Create output tensor on CUDA device
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_shared_mem(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
@@ -106,7 +106,7 @@ def cuda_shared_mem_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def cuda_blocktiling_1d_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for 1D block tiling CUDA GEMM kernel."""
     # Create output tensor on CUDA device
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_blocktiling_1d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
@@ -114,7 +114,7 @@ def cuda_blocktiling_1d_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def cuda_blocktiling_2d_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for 2D block tiling CUDA GEMM kernel."""
     # Create output tensor on CUDA device
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_blocktiling_2d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
@@ -122,7 +122,7 @@ def cuda_blocktiling_2d_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for vectorized CUDA GEMM kernel."""
     # Create output tensor on CUDA device
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_vectorize(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
@@ -130,7 +130,7 @@ def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Wrapper for warptiling CUDA GEMM kernel (dtype-aware)."""
     # Create output tensor on CUDA device with same dtype as input (like PyTorch)
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
 
     # Dispatch to appropriate warptiling kernel based on input dtype
     if a.dtype == torch.float32:
@@ -151,7 +151,7 @@ def cuda_tensorcore_naive_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.T
     This is a baseline implementation without optimizations.
     """
     # Tensor Cores output FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_naive_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -163,7 +163,7 @@ def cuda_tensorcore_naive_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.T
     This is a baseline implementation without optimizations.
     """
     # Tensor Cores output FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_naive_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -177,7 +177,7 @@ def cuda_tensorcore_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     we convert the output back to FP16.
     """
     # Tensor Cores output FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -191,7 +191,7 @@ def cuda_tensorcore_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     we convert the output back to BF16.
     """
     # Tensor Cores output FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -203,7 +203,7 @@ def cuda_tensorcore_db_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tens
     Double buffering overlaps memory loads with computation for better performance.
     """
     # Tensor Cores output FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -215,7 +215,7 @@ def cuda_tensorcore_db_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tens
     Double buffering overlaps memory loads with computation for better performance.
     """
     # Tensor Cores output FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -227,7 +227,7 @@ def cuda_cutlass_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations.
     """
     # CUTLASS outputs FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -239,7 +239,7 @@ def cuda_cutlass_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations.
     """
     # CUTLASS outputs FP32 for precision
-    c_fp32 = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
     return c_fp32.to(a.dtype)
@@ -250,7 +250,7 @@ def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
     Uses NVIDIA CUTLASS library with SIMT operations for FP32.
     """
-    c = torch.zeros((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_fp32(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 

@@ -1,13 +1,3 @@
-// Tensor Core GEMM Implementation with Double Buffering
-// Performs C = alpha * A * B + beta * C where A, B are FP16/BF16 and C is FP32
-//
-// Key concepts:
-// - Uses NVIDIA Tensor Cores via WMMA (Warp Matrix Multiply-Accumulate) API
-// - Double buffering to overlap memory loads with computation
-// - Shared memory has 2 buffers: one for current computation, one for prefetching next tile
-// - Each warp cooperatively computes multiple 16x16x16 matrix tiles
-// - Template parameterization for different precision types (FP16 or BF16)
-
 #include <cassert>
 #include <cstdio>
 #include <cublas_v2.h>
@@ -15,19 +5,8 @@
 #include <mma.h>
 #include <torch/torch.h>
 #include "gemm_kernels.cuh"
+#include "utils.cuh"
 
-#define CEIL_DIV(m, n) (((m) + (n) - 1) / (n))
-
-// Tensor Core GEMM kernel with warp tiling and double buffering
-// Template parameters:
-//   InputType: half (FP16) or nv_bfloat16 (BF16)
-//   BLOCK_ROW_WARPS: number of warps along M dimension per block (default 4)
-//   BLOCK_COL_WARPS: number of warps along N dimension per block (default 4)
-//   WARP_ROW_TILES: number of 16x16 output tiles per warp along M (default 4)
-//   WARP_COL_TILES: number of 16x16 output tiles per warp along N (default 2)
-//
-// With defaults: 16 warps/block, each warp computes 4x2 output tiles = 64x32 elements
-// Block computes: (4*4*16) x (4*2*16) = 256x128 output elements
 template <typename InputType,
           const int BLOCK_ROW_WARPS = 4,
           const int BLOCK_COL_WARPS = 4,
@@ -96,14 +75,12 @@ sgemm_tensorcore_double_buffered_kernel(int num_rows_a, int num_cols_b, int num_
         }
     }
 
-    // Total threads per block = 16 warps * 32 threads/warp = 512 threads
     constexpr int NUM_THREADS = BLOCK_ROW_WARPS * BLOCK_COL_WARPS * 32;
 
     // Double buffering control: which buffer is currently being computed on
     int read_buffer = 0;
 
     // ===== Prologue: Load the first tile into buffer 0 =====
-    // NOTE: Assumes M is multiple of BM, N is multiple of BN, K is multiple of BK (no bounds checking)
     {
         for (int idx = threadIdx.x; idx < BM * BK; idx += NUM_THREADS)
         {
@@ -112,7 +89,6 @@ sgemm_tensorcore_double_buffered_kernel(int num_rows_a, int num_cols_b, int num_
             int global_row = blockIdx.y * BM + row;
             int global_col = col;
 
-            // Direct load - no bounds check
             tile_a[0][row * BK + col] = global_a[global_row * num_cols_a + global_col];
         }
 
@@ -123,7 +99,6 @@ sgemm_tensorcore_double_buffered_kernel(int num_rows_a, int num_cols_b, int num_
             int global_row = row;
             int global_col = blockIdx.x * BN + col;
 
-            // Direct load - no bounds check
             tile_b[0][col * BK + row] = global_b[global_row * num_cols_b + global_col];
         }
     }
@@ -178,26 +153,12 @@ sgemm_tensorcore_double_buffered_kernel(int num_rows_a, int num_cols_b, int num_
                 int a_tile_row = warp_row * WARP_ROW_TILES + i; // Tile index in A (0 to BLOCK_ROW_TILES-1)
                 int b_tile_col = warp_col * WARP_COL_TILES + j; // Tile index in B (0 to BLOCK_COL_TILES-1)
 
-                // Pointer to A subtile in shared memory (row-major)
-                // Subtile starts at row (a_tile_row * WMMA_M), column 0
-                // Leading dimension is BK (stride between rows)
                 InputType const *a_tile_ptr = tile_a[read_buffer] + (a_tile_row * WMMA_M) * BK;
-
-                // Pointer to B subtile in shared memory (column-major)
-                // Since tile_b is stored column-major, each column has BK elements
-                // We want columns starting at (b_tile_col * WMMA_N)
                 InputType const *b_tile_ptr = tile_b[read_buffer] + (b_tile_col * WMMA_N) * BK;
 
-                // Load 16x16 A tile from shared memory into WMMA fragment
-                // Layout: row-major, leading dimension = BK
                 nvcuda::wmma::load_matrix_sync(a_frag, a_tile_ptr, BK);
-
-                // Load 16x16 B tile from shared memory into WMMA fragment
-                // Layout: column-major, leading dimension = BK (number of rows in col-major)
                 nvcuda::wmma::load_matrix_sync(b_frag, b_tile_ptr, BK);
 
-                // Perform matrix multiply-accumulate: acc = A * B + acc
-                // This executes on tensor cores (extremely fast, low precision)
                 nvcuda::wmma::mma_sync(acc_frag[i][j], a_frag, b_frag, acc_frag[i][j]);
             }
         }
@@ -220,22 +181,17 @@ sgemm_tensorcore_double_buffered_kernel(int num_rows_a, int num_cols_b, int num_
 #pragma unroll
         for (int j = 0; j < WARP_COL_TILES; ++j)
         {
-            // Compute tile position in block (in units of WMMA tiles)
             int c_tile_row = warp_row * WARP_ROW_TILES + i;
             int c_tile_col = warp_col * WARP_COL_TILES + j;
 
-            // Map to global matrix C coordinates (top-left corner of 16x16 tile)
             int global_row = blockIdx.y * BM + c_tile_row * WMMA_M;
             int global_col = blockIdx.x * BN + c_tile_col * WMMA_N;
 
-            // Pointer to top-left of this 16x16 output tile in global C
             float *c_ptr = global_c + global_row * num_cols_b + global_col;
 
             // Always load C and compute: C = alpha * AB + beta * C
-            // No branch - avoids warp divergence (when beta=0, multiplication by zero is fast)
             nvcuda::wmma::load_matrix_sync(c_frag, c_ptr, num_cols_b, nvcuda::wmma::mem_row_major);
 
-            // Apply alpha/beta scaling element-wise
 #pragma unroll
             for (int t = 0; t < c_frag.num_elements; ++t)
             {
@@ -252,18 +208,24 @@ sgemm_tensorcore_double_buffered_kernel(int num_rows_a, int num_cols_b, int num_
 // Launcher Functions: FP16 and BF16 variants
 // ============================================================================
 
-// FP16 Tensor Core GEMM launcher with double buffering
-// Inputs: matrix_a (M x K, FP16), matrix_b (K x N, FP16)
+// Template launcher for Tensor Core GEMM with double buffering
+// Handles both FP16 and BF16 input types
+// Inputs: matrix_a (M x K, InputType), matrix_b (K x N, InputType)
 // Output: output_matrix (M x N, FP32)
 // Computes: output_matrix = alpha * (matrix_a @ matrix_b) + beta * output_matrix
-void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                                           torch::Tensor &output_matrix, float alpha, float beta)
+template <typename InputType, typename TorchType>
+void sgemm_tensorcore_double_buffered_launcher(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix, float alpha, float beta,
+    torch::ScalarType expected_dtype, const char* dtype_name)
 {
     // Input validation
     TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
     TORCH_CHECK(matrix_b.device().is_cuda(), "Matrix B must be on CUDA device");
-    TORCH_CHECK(matrix_a.dtype() == torch::kFloat16, "Matrix A must be float16 for Tensor Core kernel");
-    TORCH_CHECK(matrix_b.dtype() == torch::kFloat16, "Matrix B must be float16 for Tensor Core kernel");
+    TORCH_CHECK(matrix_a.dtype() == expected_dtype,
+                std::string("Matrix A must be ") + dtype_name + " for Tensor Core kernel");
+    TORCH_CHECK(matrix_b.dtype() == expected_dtype,
+                std::string("Matrix B must be ") + dtype_name + " for Tensor Core kernel");
     TORCH_CHECK(output_matrix.dtype() == torch::kFloat32, "Matrix C must be float32");
     TORCH_CHECK(matrix_a.dim() == 2, "Matrix A must be 2D");
     TORCH_CHECK(matrix_b.dim() == 2, "Matrix B must be 2D");
@@ -280,8 +242,8 @@ void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const 
                 "Matrix C must be MxN");
 
     // Get device pointers
-    const auto *d_matrix_a = reinterpret_cast<const half *>(matrix_a.data_ptr<at::Half>());
-    const auto *d_matrix_b = reinterpret_cast<const half *>(matrix_b.data_ptr<at::Half>());
+    const auto *d_matrix_a = reinterpret_cast<const InputType *>(matrix_a.data_ptr<TorchType>());
+    const auto *d_matrix_b = reinterpret_cast<const InputType *>(matrix_b.data_ptr<TorchType>());
     float *d_output_matrix = output_matrix.data_ptr<float>();
 
     // Kernel configuration (matching template defaults)
@@ -298,11 +260,11 @@ void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const 
     constexpr int BN = WARP_COL_TILES * BLOCK_COL_WARPS * WMMA_N; // 2*4*16 = 128
 
     // Grid and block dimensions
-    dim3 grid_dim(CEIL_DIV(num_cols_b, BN), CEIL_DIV(num_rows_a, BM));
+    dim3 grid_dim(ceil_div(num_cols_b, BN), ceil_div(num_rows_a, BM));
     dim3 block_dim(BLOCK_ROW_WARPS * BLOCK_COL_WARPS * 32); // 16 warps * 32 = 512 threads
 
     // Launch kernel
-    sgemm_tensorcore_double_buffered_kernel<half, BLOCK_ROW_WARPS, BLOCK_COL_WARPS, WARP_ROW_TILES, WARP_COL_TILES, WMMA_M, WMMA_N, WMMA_K>
+    sgemm_tensorcore_double_buffered_kernel<InputType, BLOCK_ROW_WARPS, BLOCK_COL_WARPS, WARP_ROW_TILES, WARP_COL_TILES, WMMA_M, WMMA_N, WMMA_K>
         <<<grid_dim, block_dim>>>(
             num_rows_a, num_cols_b, num_cols_a,
             alpha, d_matrix_a, d_matrix_b, beta, d_output_matrix);
@@ -315,6 +277,18 @@ void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const 
     }
 }
 
+// FP16 Tensor Core GEMM launcher with double buffering
+// Inputs: matrix_a (M x K, FP16), matrix_b (K x N, FP16)
+// Output: output_matrix (M x N, FP32)
+// Computes: output_matrix = alpha * (matrix_a @ matrix_b) + beta * output_matrix
+void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                           torch::Tensor &output_matrix, float alpha, float beta)
+{
+    sgemm_tensorcore_double_buffered_launcher<half, at::Half>(
+        matrix_a, matrix_b, output_matrix, alpha, beta,
+        torch::kFloat16, "float16");
+}
+
 // BF16 Tensor Core GEMM launcher with double buffering
 // Inputs: matrix_a (M x K, BF16), matrix_b (K x N, BF16)
 // Output: output_matrix (M x N, FP32)
@@ -322,58 +296,7 @@ void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const 
 void sgemm_tensorcore_double_buffered_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                            torch::Tensor &output_matrix, float alpha, float beta)
 {
-    // Input validation
-    TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
-    TORCH_CHECK(matrix_b.device().is_cuda(), "Matrix B must be on CUDA device");
-    TORCH_CHECK(matrix_a.dtype() == torch::kBFloat16, "Matrix A must be bfloat16 for Tensor Core kernel");
-    TORCH_CHECK(matrix_b.dtype() == torch::kBFloat16, "Matrix B must be bfloat16 for Tensor Core kernel");
-    TORCH_CHECK(output_matrix.dtype() == torch::kFloat32, "Matrix C must be float32");
-    TORCH_CHECK(matrix_a.dim() == 2, "Matrix A must be 2D");
-    TORCH_CHECK(matrix_b.dim() == 2, "Matrix B must be 2D");
-
-    // Extract matrix dimensions
-    const int num_rows_a = static_cast<int>(matrix_a.size(0)); // M
-    const int num_cols_a = static_cast<int>(matrix_a.size(1)); // K
-    const int num_cols_b = static_cast<int>(matrix_b.size(1)); // N
-
-    // Dimension consistency checks
-    TORCH_CHECK(matrix_b.size(0) == num_cols_a,
-                "Matrix dimensions must match: A is MxK, B must be KxN");
-    TORCH_CHECK(output_matrix.size(0) == num_rows_a && output_matrix.size(1) == num_cols_b,
-                "Matrix C must be MxN");
-
-    // Get device pointers
-    const auto *d_matrix_a = reinterpret_cast<const nv_bfloat16 *>(matrix_a.data_ptr<at::BFloat16>());
-    const auto *d_matrix_b = reinterpret_cast<const nv_bfloat16 *>(matrix_b.data_ptr<at::BFloat16>());
-    float *d_output_matrix = output_matrix.data_ptr<float>();
-
-    // Kernel configuration (matching template defaults)
-    constexpr int BLOCK_ROW_WARPS = 4;
-    constexpr int BLOCK_COL_WARPS = 4;
-    constexpr int WARP_ROW_TILES = 4;
-    constexpr int WARP_COL_TILES = 2;
-    constexpr int WMMA_M = 16;
-    constexpr int WMMA_N = 16;
-    constexpr int WMMA_K = 16;
-
-    // Block tile dimensions in elements
-    constexpr int BM = WARP_ROW_TILES * BLOCK_ROW_WARPS * WMMA_M; // 4*4*16 = 256
-    constexpr int BN = WARP_COL_TILES * BLOCK_COL_WARPS * WMMA_N; // 2*4*16 = 128
-
-    // Grid and block dimensions
-    dim3 grid_dim(CEIL_DIV(num_cols_b, BN), CEIL_DIV(num_rows_a, BM));
-    dim3 block_dim(BLOCK_ROW_WARPS * BLOCK_COL_WARPS * 32); // 16 warps * 32 = 512 threads
-
-    // Launch kernel with BF16 input type
-    sgemm_tensorcore_double_buffered_kernel<nv_bfloat16, BLOCK_ROW_WARPS, BLOCK_COL_WARPS, WARP_ROW_TILES, WARP_COL_TILES, WMMA_M, WMMA_N, WMMA_K>
-        <<<grid_dim, block_dim>>>(
-            num_rows_a, num_cols_b, num_cols_a,
-            alpha, d_matrix_a, d_matrix_b, beta, d_output_matrix);
-
-    // Check for kernel launch errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
-    {
-        printf("CUDA Error: %s\n", cudaGetErrorString(err));
-    }
+    sgemm_tensorcore_double_buffered_launcher<nv_bfloat16, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix, alpha, beta,
+        torch::kBFloat16, "bfloat16");
 }
