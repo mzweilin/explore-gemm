@@ -1,32 +1,3 @@
-// 11_kernel_cutlass.cu
-// CUTLASS-based GEMM kernel for FP16, BF16, and FP32
-//
-// This implementation uses NVIDIA's CUTLASS library to provide highly optimized
-// matrix multiplication:
-//  - FP16/BF16: Tensor Core operations
-//  - FP32: SIMT operations
-//
-// Build requirements:
-//  - CUTLASS library (>= v3.x) headers
-//  - CUDA toolkit with Tensor Core support (SM80 Ampere)
-//  - PyTorch for tensor management
-//
-// Configuration (FP16/BF16):
-// - Threadblock: 128 x 128 x 32 (M x N x K)
-// - Warp: 64 x 64 x 32
-// - Instruction: 16 x 8 x 16 (Tensor Core)
-// - Pipeline stages: 2 (double buffering)
-// - Architecture: SM80 (Ampere)
-//
-// Configuration (FP32):
-// - Threadblock: 128 x 128 x 8 (M x N x K)
-// - Warp: 64 x 64 x 8
-// - Instruction: 1 x 1 x 1 (SIMT)
-// - Pipeline stages: 2 (double buffering)
-// - Architecture: SM80 (Ampere)
-//
-// No caching or swizzling for simplicity
-
 #include <torch/torch.h>
 #include <cuda_runtime.h>
 #include "gemm_kernels.cuh"
@@ -39,10 +10,6 @@
 #include "cutlass/epilogue/thread/linear_combination.h"
 #include "cutlass/gemm/gemm.h"
 
-// -----------------------------------------------------------------------------
-// Common configuration
-// -----------------------------------------------------------------------------
-
 using ElementAccumulator = float;
 using ElementCompute = float;
 using ElementOutput = float; // Always output FP32
@@ -52,13 +19,9 @@ using LayoutB = cutlass::layout::RowMajor;
 using LayoutC = cutlass::layout::RowMajor;
 
 // Tile shapes
-using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 32>;
+using ThreadBlockShape = cutlass::gemm::GemmShape<128, 128, 32>;
 using WarpShape = cutlass::gemm::GemmShape<64, 64, 32>;
 using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
-
-// -----------------------------------------------------------------------------
-// Templated GEMM configuration
-// -----------------------------------------------------------------------------
 
 template <typename InputElementType>
 struct CutlassGemmConfig
@@ -67,9 +30,7 @@ struct CutlassGemmConfig
 
     using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
         ElementOutput,
-        128 / cutlass::sizeof_bits<ElementOutput>::value,
-        ElementAccumulator,
-        ElementCompute>;
+        128 / cutlass::sizeof_bits<ElementOutput>::value>;
 
     using Gemm = cutlass::gemm::device::Gemm<
         ElementInput,
@@ -80,25 +41,19 @@ struct CutlassGemmConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
-        cutlass::arch::Sm80,  // SM80 for Ampere architecture
-        ThreadblockShape,
+        cutlass::arch::Sm80,  // SM80 for Ampere/Ada architecture
+        ThreadBlockShape,
         WarpShape,
         InstructionShape,
         EpilogueOp>;
 };
 
-// Type aliases for specific dtypes (FP16/BF16 - Tensor Cores required)
 using FP16Config = CutlassGemmConfig<cutlass::half_t>;
 using BF16Config = CutlassGemmConfig<cutlass::bfloat16_t>;
 
-// -----------------------------------------------------------------------------
-// FP32 SIMT configuration (no Tensor Cores)
-// -----------------------------------------------------------------------------
-
-// FP32 uses different tile shapes and SIMT instead of TensorOp
-using ThreadblockShapeFP32 = cutlass::gemm::GemmShape<128, 128, 8>;
+using ThreadBlockShapeFP32 = cutlass::gemm::GemmShape<128, 128, 8>;
 using WarpShapeFP32 = cutlass::gemm::GemmShape<64, 64, 8>;
-using InstructionShapeFP32 = cutlass::gemm::GemmShape<1, 1, 1>;
+using InstructionShapeFP32 = cutlass::gemm::GemmShape<>;
 
 struct CutlassGemmConfigFP32
 {
@@ -107,9 +62,7 @@ struct CutlassGemmConfigFP32
     // SIMT epilogue must operate on scalars (vector length = 1)
     using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
         ElementOutput,
-        1,  // Must be 1 for SIMT operations
-        ElementAccumulator,
-        ElementCompute>;
+        1>;
 
     using Gemm = cutlass::gemm::device::Gemm<
         ElementInput,
@@ -120,18 +73,12 @@ struct CutlassGemmConfigFP32
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassSimt,  // SIMT instead of TensorOp
-        cutlass::arch::Sm80,          // SM80 for Ampere architecture
-        ThreadblockShapeFP32,
-        WarpShapeFP32,
-        InstructionShapeFP32,
-        EpilogueOp>;
+        cutlass::arch::Sm80,          // SM80 for Ampere/Ada architecture
+        ThreadBlockShapeFP32,
+        WarpShapeFP32>;
 };
 
 using FP32Config = CutlassGemmConfigFP32;
-
-// -----------------------------------------------------------------------------
-// Templated GEMM launcher (no caching)
-// -----------------------------------------------------------------------------
 
 template <typename Config>
 cudaError_t cutlass_gemm_launch(
@@ -140,12 +87,11 @@ cudaError_t cutlass_gemm_launch(
     const typename Config::ElementInput *d_B, int ldb,
     ElementOutput *d_C, int ldc,
     float alpha, float beta,
-    cudaStream_t stream = 0)
+    cudaStream_t stream = nullptr)
 {
     if (M == 0 || N == 0 || K == 0)
         return cudaSuccess;
 
-    // Create GEMM operator on each call (no caching)
     typename Config::Gemm gemm_op;
 
     typename Config::Gemm::Arguments args(
@@ -171,18 +117,14 @@ cudaError_t cutlass_gemm_launch(
     return cudaSuccess;
 }
 
-// -----------------------------------------------------------------------------
-// PyTorch wrapper template
-// -----------------------------------------------------------------------------
-
 template <typename Config, typename TorchType>
 void cutlass_gemm_pytorch_wrapper(
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix,
-    float alpha, float beta,
+    const float alpha, const float beta,
     const char *dtype_name,
-    at::ScalarType expected_type)
+    const at::ScalarType expected_type)
 {
     // Validate input tensors
     TORCH_CHECK(matrix_a.device().is_cuda(), "Matrix A must be on CUDA device");
@@ -195,43 +137,34 @@ void cutlass_gemm_pytorch_wrapper(
 
     TORCH_CHECK(matrix_a.dim() == 2 && matrix_b.dim() == 2, "A and B must be 2D tensors");
 
-    // Make tensors contiguous
-    auto A = matrix_a.contiguous();
-    auto B = matrix_b.contiguous();
-    auto C = output_matrix.contiguous();
-
     // Extract dimensions
-    int M = static_cast<int>(A.size(0));
-    int K = static_cast<int>(A.size(1));
-    int N = static_cast<int>(B.size(1));
+    const int M = static_cast<int>(matrix_a.size(0));
+    const int K = static_cast<int>(matrix_a.size(1));
+    const int N = static_cast<int>(matrix_b.size(1));
 
-    TORCH_CHECK(B.size(0) == K, "Matrix dimension mismatch");
-    TORCH_CHECK(C.size(0) == M && C.size(1) == N, "Output matrix has wrong shape");
+    TORCH_CHECK(matrix_b.size(0) == K, "Matrix dimension mismatch");
+    TORCH_CHECK(output_matrix.size(0) == M && output_matrix.size(1) == N, "Output matrix has wrong shape");
 
     // Get device pointers
-    const typename Config::ElementInput *d_A =
-        reinterpret_cast<const typename Config::ElementInput *>(A.data_ptr<TorchType>());
-    const typename Config::ElementInput *d_B =
-        reinterpret_cast<const typename Config::ElementInput *>(B.data_ptr<TorchType>());
-    ElementOutput *d_C = C.data_ptr<float>();
+    const auto *d_A =
+        reinterpret_cast<const typename Config::ElementInput *>(matrix_a.data_ptr<TorchType>());
+    const auto *d_B =
+        reinterpret_cast<const typename Config::ElementInput *>(matrix_b.data_ptr<TorchType>());
+    auto *d_C = output_matrix.data_ptr<float>();
 
     int lda = K;
     int ldb = N;
     int ldc = N;
 
-    cudaStream_t stream = 0;
+    cudaStream_t stream = nullptr;
 
     // Launch CUTLASS GEMM
-    cudaError_t err = cutlass_gemm_launch<Config>(
+    const cudaError_t err = cutlass_gemm_launch<Config>(
         M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
 
     TORCH_CHECK(err == cudaSuccess,
                 "CUTLASS GEMM (", dtype_name, ") failed: ", cudaGetErrorString(err));
 }
-
-// -----------------------------------------------------------------------------
-// Public API functions
-// -----------------------------------------------------------------------------
 
 // FP16 launcher
 void sgemm_cutlass_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
