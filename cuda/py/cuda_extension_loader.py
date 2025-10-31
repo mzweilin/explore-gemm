@@ -157,6 +157,10 @@ def create_cuda_extension(verbose: bool = True):
 #include <cuda_bf16.h>
 #include <mma.h>
 
+// Include cooperative groups and pipeline for async kernel
+#include <cooperative_groups.h>
+#include <cuda/pipeline>
+
 // Include CUTLASS headers
 #include "cutlass/cutlass.h"
 #include "cutlass/gemm/device/gemm.h"
@@ -166,6 +170,9 @@ def create_cuda_extension(verbose: bool = True):
 
 #include <iostream>
 #include <type_traits>
+
+// Namespace alias for cooperative groups (needed for async kernel)
+namespace cg = cooperative_groups;
 
 """
 

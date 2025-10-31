@@ -4,12 +4,16 @@
 #include <cuda_runtime.h>
 #include <mma.h>
 #include <torch/torch.h>
+#include <cooperative_groups.h>
+#include <cuda/pipeline>
 #include "gemm_kernels.cuh"
 #include "utils.cuh"
 
-// Async/Multi-stage pipeline version of tensor core kernel
-// This version uses multi-buffering (3 stages) to overlap memory loads with computation
-// Similar to double buffering but with an extra stage for better overlap
+namespace cg = cooperative_groups;
+
+// Async version of tensor core kernel using cp.async instructions
+// This version uses hardware asynchronous memory copy (cp.async) with 2-stage double buffering
+// Requires SM 8.0+ (Ampere and newer) for cp.async support
 
 template <typename InputType,
           const int BLOCK_ROW_WARPS = 4,
@@ -18,8 +22,7 @@ template <typename InputType,
           const int WARP_COL_TILES = 2,
           const int WMMA_M = 16,
           const int WMMA_N = 16,
-          const int WMMA_K = 16,
-          const int NUM_STAGES = 3>  // Multi-stage pipeline (3-stage buffering)
+          const int WMMA_K = 16>
 __global__ void
 sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                float alpha, const InputType *matrix_a,
@@ -38,7 +41,8 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
     constexpr int BN = BLOCK_COL_TILES * WMMA_N; // 128
     constexpr int BK = WMMA_K;                   // 16
 
-    // Multi-stage shared memory
+    // Double-buffered shared memory for async pipeline
+    constexpr int NUM_STAGES = 2;
     __shared__ InputType tile_a[NUM_STAGES][BM * BK];
     __shared__ InputType tile_b[NUM_STAGES][BK * BN];
 
@@ -65,12 +69,18 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
 
     constexpr int NUM_THREADS = BLOCK_ROW_WARPS * BLOCK_COL_WARPS * 32;
 
-    // Multi-stage buffering control
-    int read_stage = 0;
+    // Create pipeline for async operations
+    __shared__ cuda::pipeline_shared_state<cuda::thread_scope_block, NUM_STAGES> shared_state;
+    auto pipeline = cuda::make_pipeline(cg::this_thread_block(), &shared_state);
 
-    // ===== Prologue: Load first stage (stage 0) =====
+    // Double buffering control
+    int read_buffer = 0;
+
+    // ===== Prologue: Async load first tile into buffer 0 =====
     {
-        // Load A tile (no bounds check - assumes aligned dimensions)
+        pipeline.producer_acquire();
+
+        // Async load A tile using cp.async
         for (int idx = threadIdx.x; idx < BM * BK; idx += NUM_THREADS)
         {
             int row = idx / BK;
@@ -78,10 +88,13 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
             int global_row = blockIdx.y * BM + row;
             int global_col = col;
 
-            tile_a[0][row * BK + col] = global_a[global_row * num_cols_a + global_col];
+            cuda::memcpy_async(&tile_a[0][row * BK + col],
+                             &global_a[global_row * num_cols_a + global_col],
+                             cuda::aligned_size_t<sizeof(InputType)>(sizeof(InputType)),
+                             pipeline);
         }
 
-        // Load B tile (column-major storage for WMMA, no bounds check)
+        // Async load B tile using cp.async
         for (int idx = threadIdx.x; idx < BK * BN; idx += NUM_THREADS)
         {
             int row = idx / BN;
@@ -89,22 +102,27 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
             int global_row = row;
             int global_col = blockIdx.x * BN + col;
 
-            tile_b[0][col * BK + row] = global_b[global_row * num_cols_b + global_col];
+            cuda::memcpy_async(&tile_b[0][col * BK + row],
+                             &global_b[global_row * num_cols_b + global_col],
+                             cuda::aligned_size_t<sizeof(InputType)>(sizeof(InputType)),
+                             pipeline);
         }
+
+        pipeline.producer_commit();
     }
 
-    __syncthreads();
-
-    // ===== Main K-loop with multi-stage buffering =====
+    // ===== Main K-loop with async double buffering =====
     for (int block_k_idx = 0; block_k_idx < num_cols_a; block_k_idx += BK)
     {
-        // Determine which stage to write next tile into (circular buffer)
-        int write_stage = (read_stage + 1) % NUM_STAGES;
+        // Determine which buffer to write next tile into
+        int write_buffer = read_buffer ^ 1;
 
-        // ===== Prefetch next tile (if not last iteration) =====
+        // ===== Async load next tile (if not last iteration) =====
         if (block_k_idx + BK < num_cols_a)
         {
-            // Load next A tile (no bounds check - assumes aligned dimensions)
+            pipeline.producer_acquire();
+
+            // Async load next A tile using cp.async
             for (int idx = threadIdx.x; idx < BM * BK; idx += NUM_THREADS)
             {
                 int row = idx / BK;
@@ -112,10 +130,13 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                 int global_row = blockIdx.y * BM + row;
                 int global_col = block_k_idx + BK + col;
 
-                tile_a[write_stage][row * BK + col] = global_a[global_row * num_cols_a + global_col];
+                cuda::memcpy_async(&tile_a[write_buffer][row * BK + col],
+                                 &global_a[global_row * num_cols_a + global_col],
+                                 cuda::aligned_size_t<sizeof(InputType)>(sizeof(InputType)),
+                                 pipeline);
             }
 
-            // Load next B tile (no bounds check - assumes aligned dimensions)
+            // Async load next B tile using cp.async
             for (int idx = threadIdx.x; idx < BK * BN; idx += NUM_THREADS)
             {
                 int row = idx / BN;
@@ -123,11 +144,21 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                 int global_row = block_k_idx + BK + row;
                 int global_col = blockIdx.x * BN + col;
 
-                tile_b[write_stage][col * BK + row] = global_b[global_row * num_cols_b + global_col];
+                cuda::memcpy_async(&tile_b[write_buffer][col * BK + row],
+                                 &global_b[global_row * num_cols_b + global_col],
+                                 cuda::aligned_size_t<sizeof(InputType)>(sizeof(InputType)),
+                                 pipeline);
             }
+
+            pipeline.producer_commit();
         }
 
-        // ===== Compute using current read_stage =====
+        // ===== Wait for current buffer to be ready, then compute =====
+        pipeline.consumer_wait();
+        cg::this_thread_block().sync();
+
+        // ===== Compute using current read_buffer =====
+        // This happens while next buffer is being loaded asynchronously
 #pragma unroll
         for (int i = 0; i < WARP_ROW_TILES; ++i)
         {
@@ -137,8 +168,8 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                 int a_tile_row = warp_row * WARP_ROW_TILES + i;
                 int b_tile_col = warp_col * WARP_COL_TILES + j;
 
-                InputType const *a_tile_ptr = tile_a[read_stage] + (a_tile_row * WMMA_M) * BK;
-                InputType const *b_tile_ptr = tile_b[read_stage] + (b_tile_col * WMMA_N) * BK;
+                InputType const *a_tile_ptr = tile_a[read_buffer] + (a_tile_row * WMMA_M) * BK;
+                InputType const *b_tile_ptr = tile_b[read_buffer] + (b_tile_col * WMMA_N) * BK;
 
                 nvcuda::wmma::load_matrix_sync(a_frag, a_tile_ptr, BK);
                 nvcuda::wmma::load_matrix_sync(b_frag, b_tile_ptr, BK);
@@ -147,11 +178,9 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
             }
         }
 
-        // Synchronize before switching buffers
-        __syncthreads();
-
-        // Switch to the next stage for next iteration
-        read_stage = write_stage;
+        // Release current buffer and switch to next
+        pipeline.consumer_release();
+        read_buffer = write_buffer;
     }
 
     // ===== Write results to global memory =====
@@ -225,7 +254,6 @@ void sgemm_tensorcore_async_launcher(
     constexpr int WMMA_M = 16;
     constexpr int WMMA_N = 16;
     constexpr int WMMA_K = 16;
-    constexpr int NUM_STAGES = 3;
 
     constexpr int BM = WARP_ROW_TILES * BLOCK_ROW_WARPS * WMMA_M; // 256
     constexpr int BN = WARP_COL_TILES * BLOCK_COL_WARPS * WMMA_N; // 128
@@ -235,7 +263,7 @@ void sgemm_tensorcore_async_launcher(
 
     sgemm_tensorcore_async_kernel<InputType, BLOCK_ROW_WARPS, BLOCK_COL_WARPS,
                                    WARP_ROW_TILES, WARP_COL_TILES,
-                                   WMMA_M, WMMA_N, WMMA_K, NUM_STAGES>
+                                   WMMA_M, WMMA_N, WMMA_K>
         <<<grid_dim, block_dim>>>(
             num_rows_a, num_cols_b, num_cols_a,
             alpha, d_matrix_a, d_matrix_b, beta, d_output_matrix);
