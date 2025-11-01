@@ -19,9 +19,9 @@ using LayoutB = cutlass::layout::RowMajor;
 using LayoutC = cutlass::layout::RowMajor;
 
 // Tile shapes
-using ThreadBlockShape = cutlass::gemm::GemmShape<128, 128, 32>;
-using WarpShape = cutlass::gemm::GemmShape<64, 64, 32>;
-using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+using ThreadBlockShape = cutlass::gemm::GemmShape<128, 128, 32>; // BM, BN, BK
+using WarpShape = cutlass::gemm::GemmShape<64, 64, 32>; // WM, WN, WK
+using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>; // Tensor Core shape
 
 template <typename InputElementType>
 struct CutlassGemmConfig
