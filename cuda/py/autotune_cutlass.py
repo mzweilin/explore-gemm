@@ -64,6 +64,11 @@ CONFIG_METADATA = [
     {"id": 12, "name": "256x128x32_W64x64x32_S3", "block": (256, 128, 32), "warp": (64, 64, 32), "stages": 3},
     {"id": 13, "name": "128x256x32_W64x64x32_S3", "block": (128, 256, 32), "warp": (64, 64, 32), "stages": 3},
     {"id": 14, "name": "64x64x32_W32x32x32_S5", "block": (64, 64, 32), "warp": (32, 32, 32), "stages": 5},
+    {"id": 15, "name": "256x256x64_W64x64x64_S3", "block": (256, 256, 64), "warp": (64, 64, 64), "stages": 3},
+    {"id": 16, "name": "256x128x64_W64x64x64_S3", "block": (256, 128, 64), "warp": (64, 64, 64), "stages": 3},
+    {"id": 17, "name": "128x256x64_W64x64x64_S4", "block": (128, 256, 64), "warp": (64, 64, 64), "stages": 4},
+    {"id": 18, "name": "256x256x64_W64x64x64_S4", "block": (256, 256, 64), "warp": (64, 64, 64), "stages": 4},
+    {"id": 19, "name": "128x128x64_W64x64x64_S3", "block": (128, 128, 64), "warp": (64, 64, 64), "stages": 3},
 ]
 
 
@@ -379,6 +384,11 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
     best_config_ids = []
     best_config_names = []
 
+    # For heatmap: collect speedup data for all configs
+    num_configs = len(CONFIG_METADATA)
+    heatmap_data = []  # List of lists: [size][config] = speedup
+    heatmap_sizes = []
+
     for r in results:
         if "error" not in r and r["best_config"] is not None:
             sizes.append(r["size"])
@@ -388,18 +398,41 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
             best_config_ids.append(r["best_config"])
             best_config_names.append(CONFIG_METADATA[r["best_config"]]["name"])
 
-    # Create subplots
+            # Build heatmap row for this size
+            heatmap_sizes.append(r["size"])
+            heatmap_row = []
+            pytorch_time = r.get("pytorch_time_ms")
+
+            for config_id in range(num_configs):
+                config_result = r["all_results"][config_id]
+                if config_result["status"] == "success" and pytorch_time:
+                    # Calculate speedup for this config
+                    speedup = pytorch_time / config_result["avg_time_ms"]
+                    heatmap_row.append(speedup)
+                else:
+                    heatmap_row.append(None)  # Failed config
+
+            heatmap_data.append(heatmap_row)
+
+    # Create 2-row layout: Row 1 has 2 plots, Row 2 has heatmap (full width)
     fig = make_subplots(
-        rows=3, cols=1,
+        rows=2, cols=2,
         subplot_titles=(
             f"Performance Comparison ({dtype.upper()})",
             f"Speedup vs PyTorch ({dtype.upper()})",
-            f"Best Configuration ID vs Matrix Size ({dtype.upper()})",
+            f"Speedup Heatmap: All Configs vs PyTorch ({dtype.upper()})",
+            "",  # Empty for heatmap colspan
         ),
-        vertical_spacing=0.10,
+        specs=[
+            [{"type": "scatter"}, {"type": "scatter"}],
+            [{"type": "heatmap", "colspan": 2}, None],
+        ],
+        vertical_spacing=0.12,
+        horizontal_spacing=0.08,
+        row_heights=[0.35, 0.65],  # More space for heatmap
     )
 
-    # Plot 1: TFLOPS comparison
+    # Plot 1 (top-left): TFLOPS comparison
     fig.add_trace(
         go.Scatter(
             x=sizes,
@@ -414,7 +447,7 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
         row=1, col=1,
     )
 
-    # Add PyTorch baseline
+    # Add PyTorch baseline to plot 1
     fig.add_trace(
         go.Scatter(
             x=sizes,
@@ -428,63 +461,176 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
         row=1, col=1,
     )
 
-    # Plot 2: Speedup
+    # Plot 2 (top-right): Speedup
     fig.add_trace(
         go.Scatter(
             x=sizes,
             y=speedups,
             mode='lines+markers',
-            name='Speedup',
+            name='Speedup (Best)',
             line=dict(color='#00CC96', width=3),
             marker=dict(size=10),
             text=best_config_names,
             hovertemplate='<b>Size:</b> %{x}<br><b>Speedup:</b> %{y:.2f}x<br><b>Config:</b> %{text}<extra></extra>',
+            showlegend=False,
         ),
-        row=2, col=1,
+        row=1, col=2,
     )
 
-    # Add baseline at 1.0x
+    # Add baseline at 1.0x to plot 2
     fig.add_hline(
         y=1.0,
         line_dash="dot",
         line_color="gray",
         annotation_text="PyTorch Baseline (1.0x)",
-        row=2,
-        col=1,
+        row=1,
+        col=2,
     )
 
-    # Plot 3: Config IDs
+    # Plot 3 (row 2, full width): Heatmap
+    # Transpose heatmap_data for better visualization (configs on y-axis, sizes on x-axis)
+    heatmap_data_transposed = list(map(list, zip(*heatmap_data)))
+
+    # Filter out configs that have no data (all None values)
+    filtered_configs = []
+    filtered_data = []
+    filtered_labels = []
+    config_id_mapping = {}  # Map original config_id to filtered index
+
+    for config_id in range(num_configs):
+        row_data = heatmap_data_transposed[config_id]
+        # Check if this config has at least one non-None value
+        if any(val is not None for val in row_data):
+            config_id_mapping[config_id] = len(filtered_configs)
+            filtered_configs.append(config_id)
+            filtered_data.append(row_data)
+            filtered_labels.append(f"{config_id}: {CONFIG_METADATA[config_id]['name'][:20]}")
+
+    # Create custom text with bold formatting for best configs
+    text_matrix = []
+    for filtered_idx, config_id in enumerate(filtered_configs):
+        row_text = []
+        for size_idx, size in enumerate(heatmap_sizes):
+            speedup_val = filtered_data[filtered_idx][size_idx]
+            if speedup_val is not None:
+                # Check if this is the best config for this size
+                if config_id == best_config_ids[size_idx]:
+                    row_text.append(f"<b>{speedup_val:.2f}x</b>")
+                else:
+                    row_text.append(f"{speedup_val:.2f}x")
+            else:
+                row_text.append("")
+        text_matrix.append(row_text)
+
     fig.add_trace(
-        go.Scatter(
-            x=sizes,
-            y=best_config_ids,
-            mode='lines+markers',
-            name='Best Config ID',
-            line=dict(color='#FFA15A', width=3),
-            marker=dict(size=10),
-            text=best_config_names,
-            hovertemplate='<b>Size:</b> %{x}<br><b>Config ID:</b> %{y}<br><b>Config:</b> %{text}<extra></extra>',
+        go.Heatmap(
+            z=filtered_data,
+            x=[str(s) for s in heatmap_sizes],
+            y=filtered_labels,
+            text=text_matrix,
+            texttemplate="%{text}",
+            textfont=dict(size=10),
+            colorscale='RdYlGn',
+            zmid=1.0,  # Center colorscale at 1.0x (PyTorch baseline)
+            colorbar=dict(
+                title="Speedup vs<br>PyTorch",
+                x=1.02,  # Position colorbar next to heatmap
+                len=0.6,  # Longer to match heatmap row height
+                y=0.25,  # Align with heatmap position
+                yanchor='middle',
+            ),
+            hovertemplate='<b>Size:</b> %{x}<br><b>Config:</b> %{y}<br><b>Speedup:</b> %{z:.2f}x<extra></extra>',
+            showscale=True,
         ),
-        row=3, col=1,
+        row=2, col=1,
     )
+
+    # Add bold borders around best config cells
+    # Need to add shapes after updating axes to ensure proper coordinate system
+    shapes = []
+
+    # Debug: Log the mappings
+    logger.info(f"sizes: {sizes}")
+    logger.info(f"heatmap_sizes: {heatmap_sizes}")
+    logger.info(f"best_config_ids: {best_config_ids}")
+    logger.info(f"config_id_mapping: {config_id_mapping}")
+    logger.info(f"filtered_configs: {filtered_configs}")
+
+    # Build a mapping from size to its index in heatmap_sizes
+    size_to_idx = {size: idx for idx, size in enumerate(heatmap_sizes)}
+
+    for size_idx, size in enumerate(sizes):
+        best_config_id = best_config_ids[size_idx]
+
+        # Map original config_id to filtered index
+        if best_config_id in config_id_mapping:
+            filtered_idx = config_id_mapping[best_config_id]
+
+            # Get the actual heatmap column index for this size
+            heatmap_col_idx = size_to_idx.get(size, size_idx)
+
+            logger.info(f"Adding border for size {size} (col {heatmap_col_idx}), config {best_config_id} (filtered row {filtered_idx})")
+
+            # Heatmap uses categorical x-axis, coordinates are 0-indexed for both axes
+            shapes.append(
+                dict(
+                    type="rect",
+                    xref="x3", yref="y3",  # x3/y3 for row=2, col=1 (3rd subplot)
+                    x0=heatmap_col_idx - 0.45,
+                    y0=filtered_idx - 0.45,
+                    x1=heatmap_col_idx + 0.45,
+                    y1=filtered_idx + 0.45,
+                    line=dict(color="black", width=4),
+                    fillcolor="rgba(0,0,0,0)",
+                    layer="above",
+                )
+            )
+        else:
+            logger.warning(f"Best config {best_config_id} for size {size} not in filtered configs!")
 
     # Update axes
+    # Row 1, Col 1: TFLOPS comparison
     fig.update_xaxes(title_text="Matrix Size (M=N=K)", type="log", row=1, col=1)
-    fig.update_xaxes(title_text="Matrix Size (M=N=K)", type="log", row=2, col=1)
-    fig.update_xaxes(title_text="Matrix Size (M=N=K)", type="log", row=3, col=1)
     fig.update_yaxes(title_text="TFLOPS", row=1, col=1)
-    fig.update_yaxes(title_text="Speedup (×)", row=2, col=1)
-    fig.update_yaxes(title_text="Config ID", row=3, col=1)
+
+    # Row 1, Col 2: Speedup
+    fig.update_xaxes(title_text="Matrix Size (M=N=K)", type="log", row=1, col=2)
+    fig.update_yaxes(title_text="Speedup (×)", row=1, col=2)
+
+    # Row 2: Heatmap
+    fig.update_xaxes(
+        title_text="Matrix Size (M=N=K)",
+        row=2, col=1,
+        showgrid=True,
+        gridcolor='lightgray',
+        gridwidth=1,
+        showline=True,
+        linewidth=2,
+        linecolor='black',
+        mirror=True,
+    )
+    fig.update_yaxes(
+        title_text="Configuration",
+        row=2, col=1,
+        showgrid=True,
+        gridcolor='lightgray',
+        gridwidth=1,
+        showline=True,
+        linewidth=2,
+        linecolor='black',
+        mirror=True,
+    )
 
     # Update layout
     fig.update_layout(
-        height=1200,
+        height=1000,
         title_text=f"<b>CUTLASS Autotuning Results ({dtype.upper()})</b>",
         title_x=0.5,
         title_font=dict(size=20),
         template="plotly_white",
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="center", x=0.5),
+        shapes=shapes,  # Add the border shapes
     )
 
     # Save

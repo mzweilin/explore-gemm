@@ -19,7 +19,8 @@ using LayoutB = cutlass::layout::RowMajor;
 using LayoutC = cutlass::layout::RowMajor;
 
 // Enum for all available configurations with descriptive names
-enum class CutlassConfig {
+enum class CutlassConfig
+{
     TB_128x256x64_W_64x64x64_S3 = 0,
     TB_64x256x32_W_32x64x32_S4 = 1,
     TB_128x128x32_W_64x64x32_S4 = 2,
@@ -35,6 +36,12 @@ enum class CutlassConfig {
     TB_256x128x32_W_64x64x32_S3 = 12,
     TB_128x256x32_W_64x64x32_S3 = 13,
     TB_64x64x32_W_32x32x32_S5 = 14,
+    // New configs optimized for 1024 and 2048 sizes
+    TB_256x256x64_W_64x64x64_S3 = 15,
+    TB_256x128x64_W_64x64x64_S3 = 16,
+    TB_128x256x64_W_64x64x64_S4 = 17,
+    TB_256x256x64_W_64x64x64_S4 = 18,
+    TB_128x128x64_W_64x64x64_S3 = 19,
 };
 
 // Configuration struct to define all tunable parameters
@@ -65,7 +72,7 @@ struct CutlassGemmAutotuneConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
-        cutlass::arch::Sm80,  // SM80 (compatible with SM89/Ada Lovelace)
+        cutlass::arch::Sm80, // SM80 (compatible with SM89/Ada Lovelace)
         ThreadBlockShape,
         WarpShape,
         InstructionShape,
@@ -173,6 +180,26 @@ using Config13_BF16 = CutlassGemmAutotuneConfig<128, 256, 32, 64, 64, 32, 16, 8,
 using Config14_FP16 = CutlassGemmAutotuneConfig<64, 64, 32, 32, 32, 32, 16, 8, 16, 5, cutlass::half_t>;
 using Config14_BF16 = CutlassGemmAutotuneConfig<64, 64, 32, 32, 32, 32, 16, 8, 16, 5, cutlass::bfloat16_t>;
 
+// Config 15: 256x256x64, Warp 64x64x64, Instr 16x8x16, Stages 3 (optimized for 1024/2048)
+using Config15_FP16 = CutlassGemmAutotuneConfig<256, 256, 64, 64, 64, 64, 16, 8, 16, 3, cutlass::half_t>;
+using Config15_BF16 = CutlassGemmAutotuneConfig<256, 256, 64, 64, 64, 64, 16, 8, 16, 3, cutlass::bfloat16_t>;
+
+// Config 16: 256x128x64, Warp 64x64x64, Instr 16x8x16, Stages 3 (optimized for 1024/2048)
+using Config16_FP16 = CutlassGemmAutotuneConfig<256, 128, 64, 64, 64, 64, 16, 8, 16, 3, cutlass::half_t>;
+using Config16_BF16 = CutlassGemmAutotuneConfig<256, 128, 64, 64, 64, 64, 16, 8, 16, 3, cutlass::bfloat16_t>;
+
+// Config 17: 128x256x64, Warp 64x64x64, Instr 16x8x16, Stages 4 (optimized for 1024/2048)
+using Config17_FP16 = CutlassGemmAutotuneConfig<128, 256, 64, 64, 64, 64, 16, 8, 16, 4, cutlass::half_t>;
+using Config17_BF16 = CutlassGemmAutotuneConfig<128, 256, 64, 64, 64, 64, 16, 8, 16, 4, cutlass::bfloat16_t>;
+
+// Config 18: 256x256x64, Warp 64x64x64, Instr 16x8x16, Stages 4 (optimized for 1024/2048)
+using Config18_FP16 = CutlassGemmAutotuneConfig<256, 256, 64, 64, 64, 64, 16, 8, 16, 4, cutlass::half_t>;
+using Config18_BF16 = CutlassGemmAutotuneConfig<256, 256, 64, 64, 64, 64, 16, 8, 16, 4, cutlass::bfloat16_t>;
+
+// Config 19: 128x128x64, Warp 64x64x64, Instr 16x8x16, Stages 3 (optimized for 1024)
+using Config19_FP16 = CutlassGemmAutotuneConfig<128, 128, 64, 64, 64, 64, 16, 8, 16, 3, cutlass::half_t>;
+using Config19_BF16 = CutlassGemmAutotuneConfig<128, 128, 64, 64, 64, 64, 16, 8, 16, 3, cutlass::bfloat16_t>;
+
 // Dispatcher function that calls the appropriate config based on config enum
 template <typename TorchType, typename CutlassType>
 cudaError_t dispatch_cutlass_autotune(
@@ -261,6 +288,31 @@ cudaError_t dispatch_cutlass_autotune(
             return cutlass_gemm_autotune_launch<Config14_FP16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
         else
             return cutlass_gemm_autotune_launch<Config14_BF16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+    case CutlassConfig::TB_256x256x64_W_64x64x64_S3:
+        if constexpr (std::is_same_v<CutlassType, cutlass::half_t>)
+            return cutlass_gemm_autotune_launch<Config15_FP16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+        else
+            return cutlass_gemm_autotune_launch<Config15_BF16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+    case CutlassConfig::TB_256x128x64_W_64x64x64_S3:
+        if constexpr (std::is_same_v<CutlassType, cutlass::half_t>)
+            return cutlass_gemm_autotune_launch<Config16_FP16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+        else
+            return cutlass_gemm_autotune_launch<Config16_BF16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+    case CutlassConfig::TB_128x256x64_W_64x64x64_S4:
+        if constexpr (std::is_same_v<CutlassType, cutlass::half_t>)
+            return cutlass_gemm_autotune_launch<Config17_FP16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+        else
+            return cutlass_gemm_autotune_launch<Config17_BF16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+    case CutlassConfig::TB_256x256x64_W_64x64x64_S4:
+        if constexpr (std::is_same_v<CutlassType, cutlass::half_t>)
+            return cutlass_gemm_autotune_launch<Config18_FP16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+        else
+            return cutlass_gemm_autotune_launch<Config18_BF16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+    case CutlassConfig::TB_128x128x64_W_64x64x64_S3:
+        if constexpr (std::is_same_v<CutlassType, cutlass::half_t>)
+            return cutlass_gemm_autotune_launch<Config19_FP16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+        else
+            return cutlass_gemm_autotune_launch<Config19_BF16>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
     default:
         return cudaErrorInvalidValue;
     }
@@ -349,5 +401,5 @@ void sgemm_cutlass_autotune_bf16(
 // Function to get the number of available configs
 int get_num_cutlass_configs()
 {
-    return 15; // We have 15 configurations (0-14)
+    return 20; // We have 20 configurations (0-19)
 }
