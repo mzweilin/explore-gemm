@@ -32,10 +32,6 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -std=c++17 -Xcompiler=-fno-gnu-unique")
 message(STATUS "CUDA flags: ${CMAKE_CUDA_FLAGS}")
 
-# Find CUDA kernel source files
-file(GLOB gpu_source_files "${CMAKE_SOURCE_DIR}/cuda/*.cu")
-file(GLOB header_files "${CMAKE_SOURCE_DIR}/cuda/*.cuh")
-
 # Set up paths for dependencies
 list(APPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/third-party/libtorch)
 list(APPEND CMAKE_PREFIX_PATH /usr/local/cuda-12.8)
@@ -68,46 +64,75 @@ if(CUTLASS_AVAILABLE)
     include_directories(${CUTLASS_INCLUDE_DIR})
 endif()
 
-# Tests
-add_executable(test_gemm_naive ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_naive.cpp ${gpu_source_files})
+# Tests - each test now only compiles its specific CUDA kernel file
+add_executable(test_gemm_naive
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_naive.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/01_naive.cu)
 target_link_libraries(test_gemm_naive "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_coalesce ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_coalesce.cpp ${gpu_source_files})
+add_executable(test_gemm_coalesce
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_coalesce.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/02_kernel_global_mem_coalesce.cu
+    ${CMAKE_SOURCE_DIR}/cuda/01_naive.cu)  # Needed for comparison test
 target_link_libraries(test_gemm_coalesce "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_shared_mem ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_shared_mem.cpp ${gpu_source_files})
+add_executable(test_gemm_shared_mem
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_shared_mem.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/03_kernel_shared_mem.cu)
 target_link_libraries(test_gemm_shared_mem "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_blocktiling1d ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling1d.cpp ${gpu_source_files})
+add_executable(test_gemm_blocktiling1d
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling1d.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/04_kernel_blocktiling_1d.cu)
 target_link_libraries(test_gemm_blocktiling1d "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_blocktiling2d ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling2d.cpp ${gpu_source_files})
+add_executable(test_gemm_blocktiling2d
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling2d.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/05_kernel_blocktiling_2d.cu)
 target_link_libraries(test_gemm_blocktiling2d "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_vectorize ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_vectorize.cpp ${gpu_source_files})
+add_executable(test_gemm_vectorize
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_vectorize.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/06_kernel_vectorize.cu)
 target_link_libraries(test_gemm_vectorize "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_warptiling ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling.cpp ${gpu_source_files})
+add_executable(test_gemm_warptiling
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/07_kernel_warptiling.cu)
 target_link_libraries(test_gemm_warptiling "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_warptiling_all_dtypes ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling_all_dtypes.cpp ${gpu_source_files})
+add_executable(test_gemm_warptiling_all_dtypes
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling_all_dtypes.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/08_kernel_warptiling_all_dtypes.cu
+    ${CMAKE_SOURCE_DIR}/cuda/07_kernel_warptiling.cu)  # Needed for sgemm_warptiling_default
 target_link_libraries(test_gemm_warptiling_all_dtypes "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore_naive ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_naive.cpp ${gpu_source_files})
+add_executable(test_gemm_tensorcore_naive
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_naive.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/09_kernel_tensorcore_naive.cu)
 target_link_libraries(test_gemm_tensorcore_naive "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore.cpp ${gpu_source_files})
+add_executable(test_gemm_tensorcore
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/10_kernel_tensorcore_warptiled.cu)
 target_link_libraries(test_gemm_tensorcore "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore_double_buffered ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_double_buffered.cpp ${gpu_source_files})
+add_executable(test_gemm_tensorcore_double_buffered
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_double_buffered.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/11_kernel_tensorcore_double_buffered.cu)
 target_link_libraries(test_gemm_tensorcore_double_buffered "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore_async ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_async.cpp ${gpu_source_files})
+add_executable(test_gemm_tensorcore_async
+    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_async.cpp
+    ${CMAKE_SOURCE_DIR}/cuda/12_kernel_tensorcore_async.cu
+    ${CMAKE_SOURCE_DIR}/cuda/11_kernel_tensorcore_double_buffered.cu)  # Needed for comparison test
 target_link_libraries(test_gemm_tensorcore_async "${TORCH_LIBRARIES}")
 
 # CUTLASS test (only build if CUTLASS is available)
 if(CUTLASS_AVAILABLE)
-    add_executable(test_gemm_cutlass ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass.cpp ${gpu_source_files})
+    add_executable(test_gemm_cutlass
+        ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass.cpp
+        ${CMAKE_SOURCE_DIR}/cuda/13_kernel_cutlass.cu)
     target_link_libraries(test_gemm_cutlass "${TORCH_LIBRARIES}")
 endif()
 
