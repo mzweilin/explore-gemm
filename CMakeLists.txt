@@ -134,6 +134,15 @@ if(CUTLASS_AVAILABLE)
         ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass.cpp
         ${CMAKE_SOURCE_DIR}/cuda/13_kernel_cutlass.cu)
     target_link_libraries(test_gemm_cutlass "${TORCH_LIBRARIES}")
+
+    # CUTLASS autotunable kernel - used by Python autotuner
+    # This compiles all configuration variants for autotuning
+    add_library(cutlass_autotunable SHARED
+        ${CMAKE_SOURCE_DIR}/cuda/14_kernel_cutlass_autotunable.cu)
+    target_link_libraries(cutlass_autotunable "${TORCH_LIBRARIES}")
+    set_target_properties(cutlass_autotunable PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+        POSITION_INDEPENDENT_CODE ON)
 endif()
 
 enable_testing()

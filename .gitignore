@@ -212,3 +212,4 @@ __marimo__/
 /cuda/py/benchmark_results/
 /cuda/py/*.ncu-rep
 *.ncu-rep
+/cuda/py/autotune_results/

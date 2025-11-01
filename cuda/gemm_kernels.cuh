@@ -95,3 +95,15 @@ void sgemm_cutlass_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matr
 
 void sgemm_cutlass_fp32(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                         torch::Tensor &output_matrix, float alpha, float beta);
+
+// SGEMM with CUTLASS library - Autotunable configurations
+// Input: FP16 or BF16, Output: FP32
+// Supports multiple tile configurations selected by config_id
+// Use get_num_cutlass_configs() to get the total number of available configs
+void sgemm_cutlass_autotune_fp16(int config_id, const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                 torch::Tensor &output_matrix, float alpha, float beta);
+
+void sgemm_cutlass_autotune_bf16(int config_id, const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                 torch::Tensor &output_matrix, float alpha, float beta);
+
+int get_num_cutlass_configs();
