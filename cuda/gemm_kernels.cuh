@@ -77,10 +77,10 @@ void sgemm_tensorcore_double_buffered_bf16(const torch::Tensor &matrix_a, const 
 // Uses async memory copies with multi-stage pipeline for maximum overlap
 // Requires SM 8.0+ (Ampere and newer)
 void sgemm_tensorcore_async_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                                  torch::Tensor &output_matrix, float alpha, float beta);
+                                 torch::Tensor &output_matrix, float alpha, float beta);
 
 void sgemm_tensorcore_async_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                                  torch::Tensor &output_matrix, float alpha, float beta);
+                                 torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with CUTLASS library
 // Input: FP16, BF16, or FP32, Output: FP32
