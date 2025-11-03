@@ -43,6 +43,36 @@ from plotly.subplots import make_subplots
 # Import the shared CUDA extension loader
 from cuda_extension_loader import create_cuda_extension
 
+
+# Cache-flushing tensor size (16MB to flush typical L2 caches)
+_CACHE_FLUSH_SIZE = 4 * 1024 * 1024  # 16MB in float32 elements
+
+# Global cache flush buffer (lazily initialized)
+_cache_flush_buffer = None
+
+
+def get_cache_flush_buffer():
+    """Get or create the cache flush buffer."""
+    global _cache_flush_buffer
+    if _cache_flush_buffer is None:
+        _cache_flush_buffer = torch.empty(
+            _CACHE_FLUSH_SIZE, dtype=torch.int8, device="cuda"
+        )
+    return _cache_flush_buffer
+
+
+def flush_l2_cache():
+    """Flush the L2 cache by performing a dummy operation on a large buffer.
+
+    This helps eliminate cache state artifacts between benchmark iterations.
+    Following Triton's approach of clearing L2 before each measurement.
+    """
+    cache_buffer = get_cache_flush_buffer()
+    # Perform a simple operation to flush cache
+    cache_buffer.zero_()
+    torch.cuda.synchronize()
+
+
 # Load CUDA kernels
 logger.info("🚀 Loading CUTLASS autotunable kernels...")
 cuda_kernels = create_cuda_extension(verbose=True)
@@ -199,19 +229,31 @@ def benchmark_config(
     dtype: str,
     warmup: int = 10,
     iterations: int = 100,
+    flush_cache: bool = True,
+    adaptive_iterations: bool = True,
+    target_time_ms: float = 1000.0,
 ) -> Optional[Tuple[float, float, float]]:
-    """Benchmark a single CUTLASS configuration.
+    """Benchmark a single CUTLASS configuration with robust measurement practices.
+
+    Implements best practices from Triton benchmarking:
+    - L2 cache flushing between iterations to eliminate cache artifacts
+    - Adaptive iteration counts based on kernel runtime
+    - Proper CUDA synchronization
+    - Statistical outlier removal and median-based comparison
 
     Args:
         config_id: Configuration ID (0-14)
         a: Input matrix A
         b: Input matrix B
         dtype: Data type ("float16" or "bfloat16")
-        warmup: Number of warmup iterations
-        iterations: Number of benchmark iterations
+        warmup: Number of warmup iterations (adaptive if adaptive_iterations=True)
+        iterations: Number of benchmark iterations (adaptive if adaptive_iterations=True)
+        flush_cache: Whether to flush L2 cache between iterations
+        adaptive_iterations: Scale iterations based on kernel runtime
+        target_time_ms: Target total benchmark time for adaptive iterations (ms)
 
     Returns:
-        Tuple of (avg_time_ms, min_time_ms, max_time_ms) or None if config failed
+        Tuple of (median_time_ms, min_time_ms, max_time_ms) or None if config failed
     """
     # Create output tensor (FP32)
     c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
@@ -223,16 +265,43 @@ def benchmark_config(
         kernel_fn = cuda_kernels.sgemm_cutlass_autotune_bf16  # type: ignore
 
     try:
-        # Warmup
+        # Estimate runtime with a few iterations (like Triton's approach)
+        if adaptive_iterations:
+            estimate_iters = 5
+            torch.cuda.synchronize()
+            start_estimate = torch.cuda.Event(enable_timing=True)
+            end_estimate = torch.cuda.Event(enable_timing=True)
+
+            start_estimate.record()
+            for _ in range(estimate_iters):
+                kernel_fn(config_id, a, b, c, 1.0, 0.0)
+            end_estimate.record()
+            torch.cuda.synchronize()
+
+            estimate_ms = start_estimate.elapsed_time(end_estimate) / estimate_iters
+
+            # Calculate adaptive iteration counts
+            # Target: total benchmark time ~1 second
+            iterations = max(10, min(1000, int(target_time_ms / estimate_ms)))
+            warmup = max(5, min(50, iterations // 10))
+
+        # Warmup to reach thermal/clock steady-state
         for _ in range(warmup):
+            if flush_cache:
+                flush_l2_cache()
             kernel_fn(config_id, a, b, c, 1.0, 0.0)
 
-        # Benchmark
         torch.cuda.synchronize()
+
+        # Benchmark with cache flushing
         start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
         end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
 
         for i in range(iterations):
+            # Flush L2 cache before each iteration to eliminate cache state artifacts
+            if flush_cache:
+                flush_l2_cache()
+
             start_events[i].record()
             kernel_fn(config_id, a, b, c, 1.0, 0.0)
             end_events[i].record()
@@ -247,11 +316,12 @@ def benchmark_config(
         trim_count = max(1, iterations // 10)
         times_ms_trimmed = times_ms_sorted[trim_count:-trim_count]
 
-        avg_time_ms = sum(times_ms_trimmed) / len(times_ms_trimmed)
+        # Use median instead of average for more robust comparison
+        median_time_ms = float(np.median(times_ms_trimmed))
         min_time_ms = min(times_ms_trimmed)
         max_time_ms = max(times_ms_trimmed)
 
-        return avg_time_ms, min_time_ms, max_time_ms
+        return median_time_ms, min_time_ms, max_time_ms
 
     except RuntimeError as e:
         logger.warning(f"Config {config_id} failed: {e}")
@@ -269,29 +339,67 @@ def benchmark_pytorch(
     b: torch.Tensor,
     warmup: int = 10,
     iterations: int = 100,
+    flush_cache: bool = True,
+    adaptive_iterations: bool = True,
+    target_time_ms: float = 1000.0,
 ) -> Optional[Tuple[float, float, float]]:
-    """Benchmark PyTorch matmul as baseline.
+    """Benchmark PyTorch matmul as baseline with robust measurement practices.
+
+    Implements best practices from Triton benchmarking:
+    - L2 cache flushing between iterations to eliminate cache artifacts
+    - Adaptive iteration counts based on kernel runtime
+    - Proper CUDA synchronization
+    - Statistical outlier removal and median-based comparison
 
     Args:
         a: Input matrix A
         b: Input matrix B
-        warmup: Number of warmup iterations
-        iterations: Number of benchmark iterations
+        warmup: Number of warmup iterations (adaptive if adaptive_iterations=True)
+        iterations: Number of benchmark iterations (adaptive if adaptive_iterations=True)
+        flush_cache: Whether to flush L2 cache between iterations
+        adaptive_iterations: Scale iterations based on kernel runtime
+        target_time_ms: Target total benchmark time for adaptive iterations (ms)
 
     Returns:
-        Tuple of (avg_time_ms, min_time_ms, max_time_ms) or None if failed
+        Tuple of (median_time_ms, min_time_ms, max_time_ms) or None if failed
     """
     try:
-        # Warmup
+        # Estimate runtime with a few iterations (like Triton's approach)
+        if adaptive_iterations:
+            estimate_iters = 5
+            torch.cuda.synchronize()
+            start_estimate = torch.cuda.Event(enable_timing=True)
+            end_estimate = torch.cuda.Event(enable_timing=True)
+
+            start_estimate.record()
+            for _ in range(estimate_iters):
+                _ = torch.matmul(a, b)
+            end_estimate.record()
+            torch.cuda.synchronize()
+
+            estimate_ms = start_estimate.elapsed_time(end_estimate) / estimate_iters
+
+            # Calculate adaptive iteration counts
+            iterations = max(10, min(1000, int(target_time_ms / estimate_ms)))
+            warmup = max(5, min(50, iterations // 10))
+
+        # Warmup to reach thermal/clock steady-state
         for _ in range(warmup):
+            if flush_cache:
+                flush_l2_cache()
             _ = torch.matmul(a, b)
 
-        # Benchmark
         torch.cuda.synchronize()
+
+        # Benchmark with cache flushing
         start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
         end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
 
         for i in range(iterations):
+            # Flush L2 cache before each iteration
+            if flush_cache:
+                flush_l2_cache()
+
             start_events[i].record()
             _ = torch.matmul(a, b)
             end_events[i].record()
@@ -306,11 +414,12 @@ def benchmark_pytorch(
         trim_count = max(1, iterations // 10)
         times_ms_trimmed = times_ms_sorted[trim_count:-trim_count]
 
-        avg_time_ms = sum(times_ms_trimmed) / len(times_ms_trimmed)
+        # Use median instead of average for more robust comparison
+        median_time_ms = float(np.median(times_ms_trimmed))
         min_time_ms = min(times_ms_trimmed)
         max_time_ms = max(times_ms_trimmed)
 
-        return avg_time_ms, min_time_ms, max_time_ms
+        return median_time_ms, min_time_ms, max_time_ms
 
     except RuntimeError as e:
         logger.warning(f"PyTorch benchmark failed: {e}")
@@ -321,6 +430,9 @@ def autotune_size(
     size: int,
     dtype: str,
     num_configs: int = 15,
+    flush_cache: bool = True,
+    adaptive_iterations: bool = True,
+    target_time_ms: float = 1000.0,
 ) -> Dict:
     """Autotune all configurations for a given matrix size.
 
@@ -328,6 +440,9 @@ def autotune_size(
         size: Matrix size (M=N=K=size)
         dtype: Data type ("float16" or "bfloat16")
         num_configs: Number of configurations to test
+        flush_cache: Whether to flush L2 cache between iterations
+        adaptive_iterations: Whether to use adaptive iteration counts
+        target_time_ms: Target total benchmark time for adaptive iterations
 
     Returns:
         Dictionary with autotuning results
@@ -336,6 +451,14 @@ def autotune_size(
 
     logger.info(f"\n{'='*80}")
     logger.info(f"🎯 Autotuning for size {size}x{size}x{size} ({dtype.upper()})")
+    if flush_cache:
+        logger.info(f"   L2 cache flushing: ✅ Enabled")
+    else:
+        logger.info(f"   L2 cache flushing: ❌ Disabled")
+    if adaptive_iterations:
+        logger.info(f"   Adaptive iterations: ✅ Enabled (target: {target_time_ms}ms)")
+    else:
+        logger.info(f"   Adaptive iterations: ❌ Disabled (fixed: warmup=10, iters=100)")
     logger.info(f"{'='*80}")
 
     # Map dtype string to torch dtype
@@ -353,7 +476,12 @@ def autotune_size(
 
     # Benchmark PyTorch baseline
     logger.info(f"\n📊 Benchmarking PyTorch baseline")
-    pytorch_result = benchmark_pytorch(a, b)
+    pytorch_result = benchmark_pytorch(
+        a, b,
+        flush_cache=flush_cache,
+        adaptive_iterations=adaptive_iterations,
+        target_time_ms=target_time_ms,
+    )
     if pytorch_result:
         pytorch_time, _, _ = pytorch_result
         pytorch_tflops = calculate_tflops(M, N, K, pytorch_time)
@@ -375,7 +503,12 @@ def autotune_size(
             f"   Block: {config_meta['block']}, Warp: {config_meta['warp']}, Stages: {config_meta['stages']}"
         )
 
-        result = benchmark_config(config_id, a, b, dtype)
+        result = benchmark_config(
+            config_id, a, b, dtype,
+            flush_cache=flush_cache,
+            adaptive_iterations=adaptive_iterations,
+            target_time_ms=target_time_ms,
+        )
 
         if result is None:
             logger.warning(f"   ❌ Failed")
@@ -384,31 +517,31 @@ def autotune_size(
                     "config_id": config_id,
                     "config_name": config_meta["name"],
                     "status": "failed",
-                    "avg_time_ms": None,
+                    "median_time_ms": None,
                     "tflops": None,
                 }
             )
             continue
 
-        avg_ms, min_ms, max_ms = result
-        tflops = calculate_tflops(M, N, K, avg_ms)
+        median_ms, min_ms, max_ms = result
+        tflops = calculate_tflops(M, N, K, median_ms)
 
         results.append(
             {
                 "config_id": config_id,
                 "config_name": config_meta["name"],
                 "status": "success",
-                "avg_time_ms": avg_ms,
+                "median_time_ms": median_ms,
                 "min_time_ms": min_ms,
                 "max_time_ms": max_ms,
                 "tflops": tflops,
             }
         )
 
-        logger.success(f"   ✅ {avg_ms:.4f} ms ({tflops:.2f} TFLOPS)")
+        logger.success(f"   ✅ {median_ms:.4f} ms ({tflops:.2f} TFLOPS)")
 
-        if avg_ms < best_time:
-            best_time = avg_ms
+        if median_ms < best_time:
+            best_time = median_ms
             best_config = config_id
 
     # Clean up
@@ -420,11 +553,11 @@ def autotune_size(
         logger.info(
             f"\n🏆 Best configuration for size {size}: Config {best_config} ({CONFIG_METADATA[best_config]['name']})"
         )
-        logger.success(f"   ⏱️  Time: {best_result['avg_time_ms']:.4f} ms")
+        logger.success(f"   ⏱️  Time: {best_result['median_time_ms']:.4f} ms")
         logger.success(f"   💪 Performance: {best_result['tflops']:.2f} TFLOPS")
 
         if pytorch_time is not None:
-            speedup = pytorch_time / best_result["avg_time_ms"]
+            speedup = pytorch_time / best_result["median_time_ms"]
             if speedup > 1:
                 logger.info(f"   🚀 Speedup vs PyTorch: {speedup:.2f}x faster")
             else:
@@ -547,7 +680,7 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
                 config_result = r["all_results"][config_id]
                 if config_result["status"] == "success" and pytorch_time:
                     # Calculate speedup for this config
-                    speedup = pytorch_time / config_result["avg_time_ms"]
+                    speedup = pytorch_time / config_result["median_time_ms"]
                     heatmap_row.append(speedup)
                 else:
                     heatmap_row.append(None)  # Failed config
@@ -836,15 +969,43 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
     is_flag=True,
     help="Load results from cache instead of running autotuning",
 )
-def main(dtype, sizes, load_cache_flag):
+@click.option(
+    "--no-cache-flush",
+    is_flag=True,
+    help="Disable L2 cache flushing between iterations (faster but less accurate)",
+)
+@click.option(
+    "--no-adaptive-iters",
+    is_flag=True,
+    help="Disable adaptive iteration counts (use fixed warmup=10, iterations=100)",
+)
+@click.option(
+    "--target-time",
+    type=float,
+    default=1000.0,
+    help="Target total benchmark time in milliseconds for adaptive iterations (default: 1000ms)",
+)
+def main(dtype, sizes, load_cache_flag, no_cache_flush, no_adaptive_iters, target_time):
     """Autotune CUTLASS GEMM kernels to find optimal configurations.
 
+    Implements robust benchmarking practices from Triton:
+    - L2 cache flushing to eliminate cache artifacts (enabled by default)
+    - Adaptive iteration counts based on kernel runtime (enabled by default)
+    - Median-based statistical comparison with outlier removal
+    - Proper CUDA synchronization and event timing
+
     Examples:
-        # Autotune FP16 for all power-of-2 sizes
+        # Autotune FP16 for all power-of-2 sizes (with default settings)
         python autotune_cutlass.py -d float16
 
         # Autotune specific sizes
         python autotune_cutlass.py -d float16 -s 128 -s 256 -s 512
+
+        # Fast mode: disable cache flushing and use fixed iterations
+        python autotune_cutlass.py -d float16 --no-cache-flush --no-adaptive-iters
+
+        # Custom target benchmark time (2 seconds per config)
+        python autotune_cutlass.py -d float16 --target-time 2000
 
         # Load cached results
         python autotune_cutlass.py -d float16 --load-cache
@@ -872,9 +1033,19 @@ def main(dtype, sizes, load_cache_flag):
     else:
         test_sizes = sorted(sizes)
 
+    # Convert CLI flags to function parameters
+    flush_cache = not no_cache_flush
+    adaptive_iterations = not no_adaptive_iters
+
     logger.info(f"🎯 Autotuning CUTLASS kernels for {dtype.upper()}")
     logger.info(f"📏 Sizes to test: {test_sizes}")
-    logger.info(f"🖥️  GPU: {torch.cuda.get_device_name(0)}\n")
+    logger.info(f"🖥️  GPU: {torch.cuda.get_device_name(0)}")
+    logger.info(f"⚙️  Benchmarking settings:")
+    logger.info(f"   - L2 cache flushing: {'✅ Enabled' if flush_cache else '❌ Disabled'}")
+    logger.info(f"   - Adaptive iterations: {'✅ Enabled' if adaptive_iterations else '❌ Disabled'}")
+    if adaptive_iterations:
+        logger.info(f"   - Target benchmark time: {target_time}ms")
+    logger.info("")
 
     # Get number of configs
     num_configs = cuda_kernels.get_num_cutlass_configs()  # type: ignore
@@ -883,7 +1054,12 @@ def main(dtype, sizes, load_cache_flag):
     # Run autotuning for each size
     all_results = []
     for size in test_sizes:
-        result = autotune_size(size, dtype, num_configs)
+        result = autotune_size(
+            size, dtype, num_configs,
+            flush_cache=flush_cache,
+            adaptive_iterations=adaptive_iterations,
+            target_time_ms=target_time,
+        )
         all_results.append(result)
 
     # Save results

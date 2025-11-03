@@ -165,7 +165,7 @@ struct GetConfig
         cfg.stages, T>;
 };
 
-template <typename TorchType, typename CutlassType, int IDX>
+template <typename CutlassType, int IDX>
 cudaError_t dispatch_config(
     int M, int N, int K,
     const CutlassType *d_A, int lda,
@@ -195,7 +195,7 @@ cudaError_t dispatch_cutlass_autotune(
 {
     auto launch = [&](auto I)
     {
-        return dispatch_config<TorchType, CutlassType, I>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
+        return dispatch_config<CutlassType, I>(M, N, K, d_A, lda, d_B, ldb, d_C, ldc, alpha, beta, stream);
     };
 
     switch (static_cast<int>(config))
@@ -237,7 +237,7 @@ void cutlass_gemm_autotune_pytorch_wrapper(
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix,
     const float alpha, const float beta,
-    const char *dtype_name,
+    std::string&& dtype_name,
     const at::ScalarType expected_type)
 {
     // Validate input tensors
@@ -283,12 +283,12 @@ void cutlass_gemm_autotune_pytorch_wrapper(
 
 // FP16 launcher
 void sgemm_cutlass_autotune_fp16(
-    int config_id,
+    const int config_id,
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix,
-    float alpha,
-    float beta)
+    const float alpha,
+    const float beta)
 {
     cutlass_gemm_autotune_pytorch_wrapper<at::Half, cutlass::half_t>(
         config_id, matrix_a, matrix_b, output_matrix, alpha, beta,
@@ -297,12 +297,12 @@ void sgemm_cutlass_autotune_fp16(
 
 // BF16 launcher
 void sgemm_cutlass_autotune_bf16(
-    int config_id,
+    const int config_id,
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix,
-    float alpha,
-    float beta)
+    const float alpha,
+    const float beta)
 {
     cutlass_gemm_autotune_pytorch_wrapper<at::BFloat16, cutlass::bfloat16_t>(
         config_id, matrix_a, matrix_b, output_matrix, alpha, beta,
