@@ -43,6 +43,9 @@ from plotly.subplots import make_subplots
 # Import the shared CUDA extension loader
 from cuda_extension_loader import create_cuda_extension
 
+# Import Triton kernel
+from triton_kernel_gemm import matmul as triton_matmul
+
 
 # Cache-flushing tensor size (16MB to flush typical L2 caches)
 _CACHE_FLUSH_SIZE = 4 * 1024 * 1024  # 16MB in float32 elements
@@ -334,6 +337,98 @@ def calculate_tflops(M: int, N: int, K: int, time_ms: float) -> float:
     return (flops / (time_ms * 1e-3)) * 1e-12
 
 
+def benchmark_triton(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    warmup: int = 10,
+    iterations: int = 100,
+    flush_cache: bool = True,
+    adaptive_iterations: bool = True,
+    target_time_ms: float = 1000.0,
+) -> Optional[Tuple[float, float, float]]:
+    """Benchmark Triton persistent matmul kernel with robust measurement practices.
+
+    Implements best practices from Triton benchmarking:
+    - L2 cache flushing between iterations to eliminate cache artifacts
+    - Adaptive iteration counts based on kernel runtime
+    - Proper CUDA synchronization
+    - Statistical outlier removal and median-based comparison
+
+    Args:
+        a: Input matrix A
+        b: Input matrix B
+        warmup: Number of warmup iterations (adaptive if adaptive_iterations=True)
+        iterations: Number of benchmark iterations (adaptive if adaptive_iterations=True)
+        flush_cache: Whether to flush L2 cache between iterations
+        adaptive_iterations: Scale iterations based on kernel runtime
+        target_time_ms: Target total benchmark time for adaptive iterations (ms)
+
+    Returns:
+        Tuple of (median_time_ms, min_time_ms, max_time_ms) or None if failed
+    """
+    try:
+        # Estimate runtime with a few iterations (like Triton's approach)
+        if adaptive_iterations:
+            estimate_iters = 5
+            torch.cuda.synchronize()
+            start_estimate = torch.cuda.Event(enable_timing=True)
+            end_estimate = torch.cuda.Event(enable_timing=True)
+
+            start_estimate.record()
+            for _ in range(estimate_iters):
+                _ = triton_matmul(a, b)
+            end_estimate.record()
+            torch.cuda.synchronize()
+
+            estimate_ms = start_estimate.elapsed_time(end_estimate) / estimate_iters
+
+            # Calculate adaptive iteration counts
+            iterations = max(10, min(1000, int(target_time_ms / estimate_ms)))
+            warmup = max(5, min(50, iterations // 10))
+
+        # Warmup to reach thermal/clock steady-state
+        for _ in range(warmup):
+            if flush_cache:
+                flush_l2_cache()
+            _ = triton_matmul(a, b)
+
+        torch.cuda.synchronize()
+
+        # Benchmark with cache flushing
+        start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
+        end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
+
+        for i in range(iterations):
+            # Flush L2 cache before each iteration
+            if flush_cache:
+                flush_l2_cache()
+
+            start_events[i].record()
+            _ = triton_matmul(a, b)
+            end_events[i].record()
+
+        torch.cuda.synchronize()
+
+        # Calculate times
+        times_ms = [s.elapsed_time(e) for s, e in zip(start_events, end_events)]
+
+        # Trim outliers (top and bottom 10%)
+        times_ms_sorted = sorted(times_ms)
+        trim_count = max(1, iterations // 10)
+        times_ms_trimmed = times_ms_sorted[trim_count:-trim_count]
+
+        # Use median instead of average for more robust comparison
+        median_time_ms = float(np.median(times_ms_trimmed))
+        min_time_ms = min(times_ms_trimmed)
+        max_time_ms = max(times_ms_trimmed)
+
+        return median_time_ms, min_time_ms, max_time_ms
+
+    except RuntimeError as e:
+        logger.warning(f"Triton benchmark failed: {e}")
+        return None
+
+
 def benchmark_pytorch(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -491,6 +586,23 @@ def autotune_size(
         pytorch_tflops = None
         logger.warning("   ❌ PyTorch benchmark failed")
 
+    # Benchmark Triton persistent kernel
+    logger.info(f"\n📊 Benchmarking Triton Persistent Kernel")
+    triton_result = benchmark_triton(
+        a, b,
+        flush_cache=flush_cache,
+        adaptive_iterations=adaptive_iterations,
+        target_time_ms=target_time_ms,
+    )
+    if triton_result:
+        triton_time, _, _ = triton_result
+        triton_tflops = calculate_tflops(M, N, K, triton_time)
+        logger.success(f"   ✅ {triton_time:.4f} ms ({triton_tflops:.2f} TFLOPS)")
+    else:
+        triton_time = None
+        triton_tflops = None
+        logger.warning("   ❌ Triton benchmark failed")
+
     results = []
     best_config = None
     best_time = float("inf")
@@ -573,9 +685,16 @@ def autotune_size(
         ),
         "pytorch_time_ms": pytorch_time,
         "pytorch_tflops": pytorch_tflops,
+        "triton_time_ms": triton_time,
+        "triton_tflops": triton_tflops,
         "speedup_vs_pytorch": (
             pytorch_time / best_time
             if (pytorch_time and best_config is not None)
+            else None
+        ),
+        "triton_speedup_vs_pytorch": (
+            pytorch_time / triton_time
+            if (pytorch_time and triton_time)
             else None
         ),
         "all_results": results,
@@ -616,7 +735,10 @@ def save_cache(results: List[Dict], dtype: str, cache_dir: Path):
                     "best_tflops": r["best_tflops"],
                     "pytorch_time_ms": r.get("pytorch_time_ms"),
                     "pytorch_tflops": r.get("pytorch_tflops"),
-                    "speedup_vs_pytorch": r.get("speedup_vs_pytorch"),
+                    "triton_time_ms": r.get("triton_time_ms"),
+                    "triton_tflops": r.get("triton_tflops"),
+                    "speedup_cutlass_vs_pytorch": r.get("speedup_vs_pytorch"),
+                    "speedup_triton_vs_pytorch": r.get("triton_speedup_vs_pytorch"),
                 }
             )
 
@@ -653,7 +775,9 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
     sizes = []
     best_tflops = []
     pytorch_tflops = []
+    triton_tflops = []
     speedups = []
+    triton_speedups = []
     best_config_ids = []
     best_config_names = []
 
@@ -667,7 +791,9 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
             sizes.append(r["size"])
             best_tflops.append(r["best_tflops"])
             pytorch_tflops.append(r.get("pytorch_tflops"))
+            triton_tflops.append(r.get("triton_tflops"))
             speedups.append(r.get("speedup_vs_pytorch"))
+            triton_speedups.append(r.get("triton_speedup_vs_pytorch"))
             best_config_ids.append(r["best_config"])
             best_config_names.append(CONFIG_METADATA[r["best_config"]]["name"])
 
@@ -737,18 +863,49 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
         col=1,
     )
 
+    # Add Triton persistent kernel to plot 1
+    fig.add_trace(
+        go.Scatter(
+            x=sizes,
+            y=triton_tflops,
+            mode="lines+markers",
+            name="Triton Persistent",
+            line=dict(color="#8B4789", width=2, dash="dot"),
+            marker=dict(size=8),
+            hovertemplate="<b>Size:</b> %{x}<br><b>TFLOPS:</b> %{y:.2f}<extra></extra>",
+        ),
+        row=1,
+        col=1,
+    )
+
     # Plot 2 (top-right): Speedup
     fig.add_trace(
         go.Scatter(
             x=sizes,
             y=speedups,
             mode="lines+markers",
-            name="Speedup (Best)",
+            name="CUTLASS Speedup",
             line=dict(color="#00CC96", width=3),
             marker=dict(size=10),
             text=best_config_names,
             hovertemplate="<b>Size:</b> %{x}<br><b>Speedup:</b> %{y:.2f}x<br><b>Config:</b> %{text}<extra></extra>",
-            showlegend=False,
+            showlegend=True,
+        ),
+        row=1,
+        col=2,
+    )
+
+    # Add Triton speedup to plot 2
+    fig.add_trace(
+        go.Scatter(
+            x=sizes,
+            y=triton_speedups,
+            mode="lines+markers",
+            name="Triton Speedup",
+            line=dict(color="#8B4789", width=3),
+            marker=dict(size=10),
+            hovertemplate="<b>Size:</b> %{x}<br><b>Speedup:</b> %{y:.2f}x<extra></extra>",
+            showlegend=True,
         ),
         row=1,
         col=2,
