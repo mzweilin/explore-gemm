@@ -553,7 +553,9 @@ def autotune_size(
     if adaptive_iterations:
         logger.info(f"   Adaptive iterations: ✅ Enabled (target: {target_time_ms}ms)")
     else:
-        logger.info(f"   Adaptive iterations: ❌ Disabled (fixed: warmup=10, iters=100)")
+        logger.info(
+            f"   Adaptive iterations: ❌ Disabled (fixed: warmup=10, iters=100)"
+        )
     logger.info(f"{'='*80}")
 
     # Map dtype string to torch dtype
@@ -572,7 +574,8 @@ def autotune_size(
     # Benchmark PyTorch baseline
     logger.info(f"\n📊 Benchmarking PyTorch baseline")
     pytorch_result = benchmark_pytorch(
-        a, b,
+        a,
+        b,
         flush_cache=flush_cache,
         adaptive_iterations=adaptive_iterations,
         target_time_ms=target_time_ms,
@@ -589,7 +592,8 @@ def autotune_size(
     # Benchmark Triton persistent kernel
     logger.info(f"\n📊 Benchmarking Triton Persistent Kernel")
     triton_result = benchmark_triton(
-        a, b,
+        a,
+        b,
         flush_cache=flush_cache,
         adaptive_iterations=adaptive_iterations,
         target_time_ms=target_time_ms,
@@ -616,7 +620,10 @@ def autotune_size(
         )
 
         result = benchmark_config(
-            config_id, a, b, dtype,
+            config_id,
+            a,
+            b,
+            dtype,
             flush_cache=flush_cache,
             adaptive_iterations=adaptive_iterations,
             target_time_ms=target_time_ms,
@@ -693,9 +700,7 @@ def autotune_size(
             else None
         ),
         "triton_speedup_vs_pytorch": (
-            pytorch_time / triton_time
-            if (pytorch_time and triton_time)
-            else None
+            pytorch_time / triton_time if (pytorch_time and triton_time) else None
         ),
         "all_results": results,
     }
@@ -917,8 +922,8 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
         line_dash="dot",
         line_color="gray",
         annotation_text="PyTorch Baseline (1.0x)",
-        row=1,
-        col=2,
+        row=1,  # type: ignore
+        col=2,  # type: ignore
     )
 
     # Plot 3 (row 2, full width): Heatmap
@@ -968,12 +973,14 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
         row_customdata = []
         meta = CONFIG_METADATA[config_id]
         for size_idx, size in enumerate(heatmap_sizes):
-            row_customdata.append([
-                meta['block'],
-                meta['warp'],
-                meta['stages'],
-                config_id,
-            ])
+            row_customdata.append(
+                [
+                    meta["block"],
+                    meta["warp"],
+                    meta["stages"],
+                    config_id,
+                ]
+            )
         customdata.append(row_customdata)
 
     fig.add_trace(
@@ -994,12 +1001,12 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
                 y=0.25,  # Align with heatmap position
                 yanchor="middle",
             ),
-            hovertemplate="<b>Size:</b> %{x}<br>" +
-                         "<b>Config ID:</b> %{customdata[3]}<br>" +
-                         "<b>Block Tile:</b> %{customdata[0]}<br>" +
-                         "<b>Warp Tile:</b> %{customdata[1]}<br>" +
-                         "<b>Stages:</b> %{customdata[2]}<br>" +
-                         "<b>Speedup:</b> %{z:.2f}x<extra></extra>",
+            hovertemplate="<b>Size:</b> %{x}<br>"
+            + "<b>Config ID:</b> %{customdata[3]}<br>"
+            + "<b>Block Tile:</b> %{customdata[0]}<br>"
+            + "<b>Warp Tile:</b> %{customdata[1]}<br>"
+            + "<b>Stages:</b> %{customdata[2]}<br>"
+            + "<b>Speedup:</b> %{z:.2f}x<extra></extra>",
             showscale=True,
         ),
         row=2,
@@ -1198,8 +1205,12 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, no_adaptive_iters, targe
     logger.info(f"📏 Sizes to test: {test_sizes}")
     logger.info(f"🖥️  GPU: {torch.cuda.get_device_name(0)}")
     logger.info(f"⚙️  Benchmarking settings:")
-    logger.info(f"   - L2 cache flushing: {'✅ Enabled' if flush_cache else '❌ Disabled'}")
-    logger.info(f"   - Adaptive iterations: {'✅ Enabled' if adaptive_iterations else '❌ Disabled'}")
+    logger.info(
+        f"   - L2 cache flushing: {'✅ Enabled' if flush_cache else '❌ Disabled'}"
+    )
+    logger.info(
+        f"   - Adaptive iterations: {'✅ Enabled' if adaptive_iterations else '❌ Disabled'}"
+    )
     if adaptive_iterations:
         logger.info(f"   - Target benchmark time: {target_time}ms")
     logger.info("")
@@ -1212,7 +1223,9 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, no_adaptive_iters, targe
     all_results = []
     for size in test_sizes:
         result = autotune_size(
-            size, dtype, num_configs,
+            size,
+            dtype,
+            num_configs,
             flush_cache=flush_cache,
             adaptive_iterations=adaptive_iterations,
             target_time_ms=target_time,
