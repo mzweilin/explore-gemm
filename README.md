@@ -40,11 +40,15 @@ This repository contains 14 GEMM (General Matrix Multiply) kernel implementation
 3. **Shared Memory Tiling** ([cuda/03_kernel_shared_mem.cu](cuda/03_kernel_shared_mem.cu))
    Block-level tiling using shared memory to reduce global memory accesses
 
+![Shared Memory](./shared_mem_gemm.gif)
+
 4. **1D Block Tiling** ([cuda/04_kernel_blocktiling_1d.cu](cuda/04_kernel_blocktiling_1d.cu))
    Enhanced block tiling with 1D thread-level tiling (TM) for increased work per thread
 
 5. **2D Block Tiling** ([cuda/05_kernel_blocktiling_2d.cu](cuda/05_kernel_blocktiling_2d.cu))
    Full 2D thread-level tiling (TM x TN) with register blocking
+
+![2D Block TIled](./2D_tiled_gemm.gif)
 
 6. **Vectorized Memory Access** ([cuda/06_kernel_vectorize.cu](cuda/06_kernel_vectorize.cu))
    Uses float4 vectorized loads/stores for improved memory bandwidth utilization
