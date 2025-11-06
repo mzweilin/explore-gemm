@@ -43,8 +43,8 @@ from plotly.subplots import make_subplots
 # Import the shared CUDA extension loader
 from cuda_extension_loader import create_cuda_extension
 
-# Import Triton kernel
-from triton_kernel_gemm import matmul as triton_matmul
+# Import Triton persistent kernel
+from triton_kernel_gemm import matmul_persistent as triton_matmul
 
 
 # Cache-flushing tensor size (16MB to flush typical L2 caches)

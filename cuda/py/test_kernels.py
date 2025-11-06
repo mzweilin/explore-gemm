@@ -42,8 +42,8 @@ except ImportError:
 # Import the shared CUDA extension loader
 from cuda_extension_loader import create_cuda_extension
 
-# Import Triton kernel
-from triton_kernel_gemm import matmul as triton_matmul
+# Import Triton persistent kernel
+from triton_kernel_gemm import matmul_persistent as triton_matmul
 
 
 # Load CUDA kernels once for all tests
