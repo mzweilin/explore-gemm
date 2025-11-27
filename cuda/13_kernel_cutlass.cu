@@ -1,6 +1,7 @@
 #include <torch/torch.h>
 #include <cuda_runtime.h>
 #include "gemm_kernels.cuh"
+#include "cuda/utils.cuh"
 
 #include "cutlass/cutlass.h"
 #include "cutlass/arch/arch.h"
@@ -41,7 +42,7 @@ struct CutlassGemmConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
-        cutlass::arch::Sm80,  // SM80 for Ampere/Ada architecture
+        SelectedCutlassArch,  // Architecture selected from utils.cuh (SM89/SM90)
         ThreadBlockShape,
         WarpShape,
         InstructionShape,
@@ -73,7 +74,7 @@ struct CutlassGemmConfigFP32
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassSimt,  // SIMT instead of TensorOp
-        cutlass::arch::Sm80,          // SM80 for Ampere/Ada architecture
+        SelectedCutlassArch,          // Architecture selected from utils.cuh (SM89/SM90)
         ThreadBlockShapeFP32,
         WarpShapeFP32>;
 };

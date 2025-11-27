@@ -107,3 +107,10 @@ void sgemm_cutlass_autotune_bf16(int config_id, const torch::Tensor &matrix_a, c
                                  torch::Tensor &output_matrix, float alpha, float beta);
 
 int get_num_cutlass_configs();
+
+// Get configured GPU architecture information
+// Returns architecture name like "SM90 (Hopper)", "SM89 (Ada Lovelace)", or "SM80 (Ampere)"
+std::string get_cutlass_arch_info();
+
+// Get configured SM architecture number (80, 89, or 90)
+int get_cutlass_arch_sm();

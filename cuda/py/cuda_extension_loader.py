@@ -91,6 +91,7 @@ def create_cuda_extension(verbose: bool = True):
     tensorcore_async_cu = file_dir / "12_kernel_tensorcore_async.cu"
     cutlass_cu = file_dir / "13_kernel_cutlass.cu"
     cutlass_autotune_cu = file_dir / "14_kernel_cutlass_autotunable.cu"
+    arch_info_cu = file_dir / "arch_info.cu"
     header_file = file_dir / "gemm_kernels.cuh"
     utils_header_file = file_dir / "utils.cuh"
 
@@ -112,6 +113,7 @@ def create_cuda_extension(verbose: bool = True):
         logger.info(f"   • Tensor Core Async: {tensorcore_async_cu}")
         logger.info(f"   • CUTLASS: {cutlass_cu}")
         logger.info(f"   • CUTLASS Autotunable: {cutlass_autotune_cu}")
+        logger.info(f"   • Architecture Info: {arch_info_cu}")
         logger.info(f"   • Header: {header_file}")
         logger.info(f"   • Utils Header: {utils_header_file}")
 
@@ -135,7 +137,8 @@ def create_cuda_extension(verbose: bool = True):
         str(tensorcore_async_cu), str(header_file), str(utils_header_file)
     )
     cutlass_code, _, _ = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
-    cutlass_autotune_code, header_code, utils_code = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+    cutlass_autotune_code, _, _ = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+    arch_info_code, header_code, utils_code = get_cuda_code(str(arch_info_cu), str(header_file), str(utils_header_file))
 
     # Combine CUDA sources
     # Add preprocessor directives to enable half-precision and WMMA for Tensor Cores
@@ -210,6 +213,8 @@ namespace cg = cooperative_groups;
         + cutlass_code
         + "\n"
         + cutlass_autotune_code
+        + "\n"
+        + arch_info_code
     )
 
     # Create build directory
@@ -266,6 +271,8 @@ namespace cg = cooperative_groups;
             "sgemm_cutlass_autotune_fp16",
             "sgemm_cutlass_autotune_bf16",
             "get_num_cutlass_configs",
+            "get_cutlass_arch_info",
+            "get_cutlass_arch_sm",
         ],
         with_cuda=True,
         verbose=verbose,

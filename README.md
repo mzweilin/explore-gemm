@@ -104,6 +104,37 @@ This repository contains 14 GEMM (General Matrix Multiply) kernel implementation
 
 All kernels include PyTorch tensor wrappers for easy integration. See [cuda/gemm_kernels.cuh](cuda/gemm_kernels.cuh) for the API.
 
+## GPU Architecture Configuration
+
+The CUTLASS kernels (13 and 14) support different GPU architectures through a configuration setting in [cuda/utils.cuh](cuda/utils.cuh:17).
+
+### Supported Architectures
+
+- **SM80**: Ampere (A100, RTX 3090, etc.)
+- **SM89**: Ada Lovelace (RTX 4090, etc.) - **Default**
+- **SM90**: Hopper (H100, etc.)
+
+### Changing Architecture
+
+To target a different GPU architecture, edit the `GPU_SM_ARCH` constant in [cuda/utils.cuh](cuda/utils.cuh):
+
+```cpp
+// For H100 GPUs (Hopper)
+constexpr int GPU_SM_ARCH = 90;
+
+// For A100 GPUs (Ampere)
+constexpr int GPU_SM_ARCH = 80;
+
+// For RTX 4090 GPUs (Ada Lovelace) - Default
+constexpr int GPU_SM_ARCH = 89;
+```
+
+After changing the architecture, rebuild the project:
+
+```bash
+cmake --build build --target test_gemm_cutlass
+```
+
 ## Building
 
 Build the project with CMake:

@@ -1,6 +1,7 @@
 #include <torch/torch.h>
 #include <cuda_runtime.h>
 #include "gemm_kernels.cuh"
+#include "cuda/utils.cuh"
 
 #include "cutlass/cutlass.h"
 #include "cutlass/arch/arch.h"
@@ -71,7 +72,7 @@ struct CutlassGemmAutotuneConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
-        cutlass::arch::Sm80, // SM80 (compatible with Ampere/Ada Lovelace)
+        SelectedCutlassArch, // Architecture selected from utils.cuh (SM89/SM90)
         ThreadBlockShape,
         WarpShape,
         InstructionShape,
