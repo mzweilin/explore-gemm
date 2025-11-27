@@ -4,26 +4,45 @@ CUDA implementations of General Matrix Multiply (GEMM) operations with PyTorch i
 
 ## Setup
 
-To set up the project with libtorch, run:
+To set up the project with libtorch and CUTLASS, run:
 
 ```bash
 ./setup.sh
 ```
 
-This will download and configure libtorch (PyTorch 2.7.1 with CUDA 12.8 by default) in the `third-party/` directory.
+This will download and configure the following:
+- **libtorch** (PyTorch 2.7.1 with CUDA 12.8 by default) in `third-party/libtorch`
+- **CUTLASS** (version 4.3.0 by default) in `third-party/cutlass`
+- **Catch2** test framework in `third-party/catch.hpp`
+- **Python virtual environment** with PyTorch, loguru, pandas, plotly, and pytest in `venv/`
 
 ### Custom Versions
 
-You can specify different PyTorch and CUDA versions:
+You can specify different PyTorch, CUDA, and CUTLASS versions:
 
 ```bash
 # Use specific versions
 ./setup.sh -p 2.5.1 -c 121        # PyTorch 2.5.1 with CUDA 12.1
 ./setup.sh --pytorch 2.4.0 --cuda 118  # PyTorch 2.4.0 with CUDA 11.8
 
+# Specify CUTLASS version
+./setup.sh -t 4.2.0              # CUTLASS 4.2.0
+./setup.sh --cutlass 4.5.0       # CUTLASS 4.5.0
+
+# Remote setup (installs pip and venv from apt)
+./setup.sh --remote              # For remote servers without pip/venv
+
+# Combine all options
+./setup.sh -p 2.5.1 -c 121 -t 4.2.0 --remote
+
 # See all options
 ./setup.sh --help
 ```
+
+**Notes:**
+- The setup script will automatically install `unzip` if it's not already available on your system
+- Use `--remote` flag on remote servers to automatically install `pip` and `venv` via apt
+- After setup, activate the Python environment with: `source venv/bin/activate`
 
 ## CUDA Kernels
 
