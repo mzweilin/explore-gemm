@@ -266,8 +266,6 @@ namespace cg = cooperative_groups;
             "sgemm_cutlass_autotune_fp16",
             "sgemm_cutlass_autotune_bf16",
             "get_num_cutlass_configs",
-            "get_cutlass_arch_info",
-            "get_cutlass_arch_sm",
         ],
         with_cuda=True,
         verbose=verbose,
