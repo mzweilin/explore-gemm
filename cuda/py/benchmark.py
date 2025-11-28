@@ -347,11 +347,6 @@ def create_visualization(
     """Create interactive Plotly visualizations."""
     logger.info("📊 Creating visualizations...")
 
-    # RTX 4090 theoretical peak performance
-    RTX_4090_PEAK_TFLOPS = 82.58  # FP32 TFLOPS
-    RTX_4090_PEAK_TFLOP16S = 165.16  # 2x FP32 for FP16/BF16 (TFLOP16s)
-    RTX_4090_PEAK_BANDWIDTH_GBPS = 1008.0  # 1.008 TB/s = 1008 GB/s
-
     # Format dtype for display
     dtype_display = (
         dtype.upper()
@@ -361,11 +356,6 @@ def create_visualization(
 
     # Determine which TFLOP metric to use
     tflop_metric = "TFLOP16s" if dtype in ["float16", "bfloat16"] else "TFLOPS"
-    peak_tflops = (
-        RTX_4090_PEAK_TFLOP16S
-        if dtype in ["float16", "bfloat16"]
-        else RTX_4090_PEAK_TFLOPS
-    )
 
     # Create subplots
     fig = make_subplots(
@@ -486,31 +476,6 @@ def create_visualization(
         line_color="gray",
         annotation_text="PyTorch Baseline",
         row=2,  # type: ignore
-        col=2,  # type: ignore
-    )
-
-    # Add RTX 4090 theoretical peak lines using add_shape for subplots
-    # TFLOPS/TFLOP16s peak line (row 1, col 1)
-    fig.add_hline(
-        y=peak_tflops,
-        line_dash="dot",
-        line_color="red",
-        line_width=2,
-        annotation_text=f"RTX 4090 Peak: {peak_tflops} {tflop_metric}",
-        annotation_position="top",
-        row=1,  # type: ignore
-        col=1,  # type: ignore
-    )
-
-    # Bandwidth peak line (row 1, col 2)
-    fig.add_hline(
-        y=RTX_4090_PEAK_BANDWIDTH_GBPS,
-        line_dash="dot",
-        line_color="red",
-        line_width=2,
-        annotation_text=f"RTX 4090 Peak: {RTX_4090_PEAK_BANDWIDTH_GBPS} GB/s",
-        annotation_position="top",
-        row=1,  # type: ignore
         col=2,  # type: ignore
     )
 
