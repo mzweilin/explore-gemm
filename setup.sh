@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Default versions
-PYTORCH_VERSION="2.7.1"
+PYTORCH_VERSION="2.9.1"
 CUDA_VERSION="128"
 CUTLASS_VERSION="4.3.0"
 REMOTE_SETUP=false
@@ -71,7 +71,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 LIBTORCH_DIR="third-party/libtorch"
-LIBTORCH_URL="https://download.pytorch.org/libtorch/cu${CUDA_VERSION}/libtorch-cxx11-abi-shared-with-deps-${PYTORCH_VERSION}%2Bcu${CUDA_VERSION}.zip"
+LIBTORCH_URL="https://download.pytorch.org/libtorch/cu${CUDA_VERSION}/libtorch-shared-with-deps-${PYTORCH_VERSION}%2Bcu${CUDA_VERSION}.zip"
 
 # Catch2 configuration
 CATCH2_DIR="third-party"
