@@ -229,7 +229,7 @@ TORCH_INSTALL_CMD="torch --index-url https://download.pytorch.org/whl/cu${CUDA_V
 
 # Install PyTorch and other packages
 pip install $TORCH_INSTALL_CMD -q
-pip install loguru pandas plotly pytest -q
+pip install loguru pandas plotly pytest click ninja -q
 
 echo -e "${GREEN}✅ Python packages installed${NC}"
 deactivate
