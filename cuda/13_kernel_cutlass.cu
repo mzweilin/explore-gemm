@@ -21,8 +21,7 @@ using LayoutC = cutlass::layout::RowMajor;
 // Tile shapes
 using ThreadBlockShape = cutlass::gemm::GemmShape<128, 128, 32>; // BM, BN, BK
 using WarpShape = cutlass::gemm::GemmShape<64, 64, 32>; // WM, WN, WK
-// SM90 uses WGMMA (warp-group MMA) with instruction shape m64nXk16
-using InstructionShape = cutlass::gemm::GemmShape<64, 64, 16>; // SM90 WGMMA shape
+using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>; // Tensor Core shape
 
 template <typename InputElementType>
 struct CutlassGemmConfig
@@ -42,7 +41,7 @@ struct CutlassGemmConfig
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassTensorOp,
-        cutlass::arch::Sm90,  // SM90 for Hopper architecture
+        cutlass::arch::Sm80,  // SM80 for Ampere/Ada architecture
         ThreadBlockShape,
         WarpShape,
         InstructionShape,
@@ -74,7 +73,7 @@ struct CutlassGemmConfigFP32
         LayoutC,
         ElementAccumulator,
         cutlass::arch::OpClassSimt,  // SIMT instead of TensorOp
-        cutlass::arch::Sm90,          // SM90 for Hopper architecture
+        cutlass::arch::Sm80,          // SM80 for Ampere/Ada architecture
         ThreadBlockShapeFP32,
         WarpShapeFP32>;
 };
