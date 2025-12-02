@@ -107,3 +107,14 @@ void sgemm_cutlass_autotune_bf16(int config_id, const torch::Tensor &matrix_a, c
                                  torch::Tensor &output_matrix, float alpha, float beta);
 
 int get_num_cutlass_configs();
+
+// SGEMM with CUTLASS library - Hopper architecture (SM90) with Collective Builder API
+// Input: FP16 or BF16, Output: FP32
+// Uses CUTLASS 3.x Collective Builder API optimized for H100 GPUs
+// Requires Hopper architecture (SM 9.0+) with TMA (Tensor Memory Accelerator) support
+// Note: alpha=1.0, beta=0.0 are hard-coded
+void sgemm_cutlass_hopper_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                torch::Tensor &output_matrix);
+
+void sgemm_cutlass_hopper_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                                torch::Tensor &output_matrix);

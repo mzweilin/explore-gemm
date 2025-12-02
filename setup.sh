@@ -192,7 +192,7 @@ echo -e "${BLUE}🐍 Setting up Python virtual environment...${NC}"
 if [ "$REMOTE_SETUP" = true ]; then
     echo -e "${YELLOW}📦 Remote setup: Installing pip and venv...${NC}"
     sudo apt update
-    sudo apt install -y python3-pip python3-venv
+    sudo apt install -y python3-pip python3-venv python3-dev
     echo -e "${GREEN}✅ pip and venv installed${NC}"
 fi
 

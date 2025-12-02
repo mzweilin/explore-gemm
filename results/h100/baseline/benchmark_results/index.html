@@ -1,0 +1,993 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CUDA GEMM Benchmark Results</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-bottom: 3px solid #e9ecef;
+        }
+
+        .info-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .info-card h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .info-card p {
+            color: #333;
+            font-size: 1.3em;
+            font-weight: bold;
+        }
+
+        .chart-container {
+            padding: 30px;
+        }
+
+        .chart-container iframe {
+            width: 100%;
+            height: 950px;
+            border: none;
+            border-radius: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 30px;
+            max-width: calc(100% - 60px);
+        }
+
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85em;
+            letter-spacing: 1px;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .kernel-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .badge-pytorch {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .badge-pytorch-jit {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .badge-naive {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .badge-coalesced {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .badge-shared {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .badge-blocktiling {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .badge-blocktiling2d {
+            background: #e0f7fa;
+            color: #006064;
+        }
+
+        .badge-vectorize {
+            background: #fce4ec;
+            color: #c2185b;
+        }
+
+        .badge-warptiling {
+            background: #fff9c4;
+            color: #f57f17;
+        }
+
+        .badge-tensorcore {
+            background: #e0f2f1;
+            color: #00695c;
+        }
+
+        .badge-cutlass {
+            background: #ffe0b2;
+            color: #e65100;
+        }
+
+        .speedup {
+            font-weight: bold;
+        }
+
+        .speedup.faster {
+            color: #2e7d32;
+        }
+
+        .speedup.slower {
+            color: #c62828;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 CUDA GEMM Kernel Benchmarks (BFP16)</h1>
+            <p class="subtitle">Performance Comparison: PyTorch vs Custom CUDA Kernels</p>
+        </header>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>🖥️ GPU</h3>
+                <p>NVIDIA H100 80GB HBM3</p>
+            </div>
+            <div class="info-card">
+                <h3>📊 Data Type</h3>
+                <p>BFP16</p>
+            </div>
+            <div class="info-card">
+                <h3>⏰ Timestamp</h3>
+                <p>2025-11-29 15:41:49</p>
+            </div>
+            <div class="info-card">
+                <h3>🔢 Test Sizes</h3>
+                <p>12 configurations</p>
+            </div>
+            <div class="info-card">
+                <h3>⚡ Kernels Tested</h3>
+                <p>7 kernels</p>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <iframe src="benchmark_results.html"></iframe>
+        </div>
+
+        <h2 style="padding: 30px 30px 0 30px; color: #333;">📊 Detailed Results</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Matrix Size</th>
+                    <th>Kernel</th>
+                    <th>Avg Time (ms)</th>
+                    <th>TFLOP16s</th>
+                    <th>Bandwidth (GB/s)</th>
+                    <th>Speedup</th>
+                </tr>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td><strong>64×64</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0180</td>
+                    <td><strong>0.03</strong></td>
+                    <td>1.36</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>64×64</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.0204</td>
+                    <td><strong>0.03</strong></td>
+                    <td>1.20</td>
+                    <td><span class="speedup slower">0.88×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>64×64</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.0217</td>
+                    <td><strong>0.02</strong></td>
+                    <td>1.13</td>
+                    <td><span class="speedup slower">0.83×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>64×64</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.0219</td>
+                    <td><strong>0.02</strong></td>
+                    <td>1.12</td>
+                    <td><span class="speedup slower">0.82×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>64×64</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.0225</td>
+                    <td><strong>0.02</strong></td>
+                    <td>1.09</td>
+                    <td><span class="speedup slower">0.80×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>64×64</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0200</td>
+                    <td><strong>0.03</strong></td>
+                    <td>1.23</td>
+                    <td><span class="speedup slower">0.90×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>96×96</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0179</td>
+                    <td><strong>0.10</strong></td>
+                    <td>3.09</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>96×96</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.0195</td>
+                    <td><strong>0.09</strong></td>
+                    <td>2.84</td>
+                    <td><span class="speedup slower">0.92×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>96×96</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.0253</td>
+                    <td><strong>0.07</strong></td>
+                    <td>2.18</td>
+                    <td><span class="speedup slower">0.71×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>96×96</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.0256</td>
+                    <td><strong>0.07</strong></td>
+                    <td>2.16</td>
+                    <td><span class="speedup slower">0.70×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>96×96</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.0268</td>
+                    <td><strong>0.07</strong></td>
+                    <td>2.06</td>
+                    <td><span class="speedup slower">0.67×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>96×96</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0198</td>
+                    <td><strong>0.09</strong></td>
+                    <td>2.80</td>
+                    <td><span class="speedup slower">0.90×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>128×128</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0177</td>
+                    <td><strong>0.24</strong></td>
+                    <td>5.56</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>128×128</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>0.0392</td>
+                    <td><strong>0.11</strong></td>
+                    <td>2.51</td>
+                    <td><span class="speedup slower">0.45×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>128×128</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.0196</td>
+                    <td><strong>0.21</strong></td>
+                    <td>5.01</td>
+                    <td><span class="speedup slower">0.90×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>128×128</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.0283</td>
+                    <td><strong>0.15</strong></td>
+                    <td>3.47</td>
+                    <td><span class="speedup slower">0.62×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>128×128</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.0287</td>
+                    <td><strong>0.15</strong></td>
+                    <td>3.43</td>
+                    <td><span class="speedup slower">0.62×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>128×128</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.0303</td>
+                    <td><strong>0.14</strong></td>
+                    <td>3.24</td>
+                    <td><span class="speedup slower">0.58×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>128×128</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0201</td>
+                    <td><strong>0.21</strong></td>
+                    <td>4.88</td>
+                    <td><span class="speedup slower">0.88×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>256×256</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0176</td>
+                    <td><strong>1.90</strong></td>
+                    <td>22.30</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>256×256</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>0.0624</td>
+                    <td><strong>0.54</strong></td>
+                    <td>6.30</td>
+                    <td><span class="speedup slower">0.28×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>256×256</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.0196</td>
+                    <td><strong>1.71</strong></td>
+                    <td>20.01</td>
+                    <td><span class="speedup slower">0.90×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>256×256</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.0420</td>
+                    <td><strong>0.80</strong></td>
+                    <td>9.37</td>
+                    <td><span class="speedup slower">0.42×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>256×256</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.0424</td>
+                    <td><strong>0.79</strong></td>
+                    <td>9.28</td>
+                    <td><span class="speedup slower">0.42×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>256×256</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.0460</td>
+                    <td><strong>0.73</strong></td>
+                    <td>8.54</td>
+                    <td><span class="speedup slower">0.38×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>256×256</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0201</td>
+                    <td><strong>1.67</strong></td>
+                    <td>19.55</td>
+                    <td><span class="speedup slower">0.88×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>512×512</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0176</td>
+                    <td><strong>15.22</strong></td>
+                    <td>89.21</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>512×512</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>0.1096</td>
+                    <td><strong>2.45</strong></td>
+                    <td>14.35</td>
+                    <td><span class="speedup slower">0.16×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>512×512</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.0210</td>
+                    <td><strong>12.79</strong></td>
+                    <td>74.93</td>
+                    <td><span class="speedup slower">0.84×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>512×512</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.0681</td>
+                    <td><strong>3.94</strong></td>
+                    <td>23.09</td>
+                    <td><span class="speedup slower">0.26×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>512×512</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.0676</td>
+                    <td><strong>3.97</strong></td>
+                    <td>23.26</td>
+                    <td><span class="speedup slower">0.26×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>512×512</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.0776</td>
+                    <td><strong>3.46</strong></td>
+                    <td>20.27</td>
+                    <td><span class="speedup slower">0.23×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>512×512</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0202</td>
+                    <td><strong>13.32</strong></td>
+                    <td>78.02</td>
+                    <td><span class="speedup slower">0.87×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>768×768</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0180</td>
+                    <td><strong>50.29</strong></td>
+                    <td>196.43</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>768×768</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>0.1556</td>
+                    <td><strong>5.82</strong></td>
+                    <td>22.75</td>
+                    <td><span class="speedup slower">0.12×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>768×768</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.0438</td>
+                    <td><strong>20.70</strong></td>
+                    <td>80.84</td>
+                    <td><span class="speedup slower">0.41×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>768×768</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.0970</td>
+                    <td><strong>9.34</strong></td>
+                    <td>36.48</td>
+                    <td><span class="speedup slower">0.19×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>768×768</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.0993</td>
+                    <td><strong>9.12</strong></td>
+                    <td>35.63</td>
+                    <td><span class="speedup slower">0.18×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>768×768</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.1096</td>
+                    <td><strong>8.27</strong></td>
+                    <td>32.29</td>
+                    <td><span class="speedup slower">0.16×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>768×768</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0206</td>
+                    <td><strong>44.03</strong></td>
+                    <td>171.99</td>
+                    <td><span class="speedup slower">0.88×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1024×1024</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0185</td>
+                    <td><strong>116.31</strong></td>
+                    <td>340.74</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1024×1024</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>0.1988</td>
+                    <td><strong>10.80</strong></td>
+                    <td>31.64</td>
+                    <td><span class="speedup slower">0.09×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1024×1024</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.0884</td>
+                    <td><strong>24.29</strong></td>
+                    <td>71.17</td>
+                    <td><span class="speedup slower">0.21×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1024×1024</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.1223</td>
+                    <td><strong>17.56</strong></td>
+                    <td>51.44</td>
+                    <td><span class="speedup slower">0.15×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1024×1024</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.1211</td>
+                    <td><strong>17.73</strong></td>
+                    <td>51.94</td>
+                    <td><span class="speedup slower">0.15×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1024×1024</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.1406</td>
+                    <td><strong>15.27</strong></td>
+                    <td>44.74</td>
+                    <td><span class="speedup slower">0.13×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1024×1024</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0225</td>
+                    <td><strong>95.60</strong></td>
+                    <td>280.07</td>
+                    <td><span class="speedup slower">0.82×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1536×1536</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0230</td>
+                    <td><strong>315.23</strong></td>
+                    <td>615.68</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1536×1536</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>0.4528</td>
+                    <td><strong>16.00</strong></td>
+                    <td>31.26</td>
+                    <td><span class="speedup slower">0.05×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1536×1536</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.2870</td>
+                    <td><strong>25.26</strong></td>
+                    <td>49.33</td>
+                    <td><span class="speedup slower">0.08×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1536×1536</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.1912</td>
+                    <td><strong>37.91</strong></td>
+                    <td>74.04</td>
+                    <td><span class="speedup slower">0.12×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1536×1536</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.1884</td>
+                    <td><strong>38.48</strong></td>
+                    <td>75.15</td>
+                    <td><span class="speedup slower">0.12×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1536×1536</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.2148</td>
+                    <td><strong>33.75</strong></td>
+                    <td>65.91</td>
+                    <td><span class="speedup slower">0.11×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>1536×1536</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0412</td>
+                    <td><strong>176.05</strong></td>
+                    <td>343.85</td>
+                    <td><span class="speedup slower">0.56×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>2048×2048</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0348</td>
+                    <td><strong>493.45</strong></td>
+                    <td>722.82</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>2048×2048</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>0.6149</td>
+                    <td><strong>27.94</strong></td>
+                    <td>40.92</td>
+                    <td><span class="speedup slower">0.06×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>2048×2048</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>0.6240</td>
+                    <td><strong>27.53</strong></td>
+                    <td>40.33</td>
+                    <td><span class="speedup slower">0.06×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>2048×2048</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>0.2855</td>
+                    <td><strong>60.18</strong></td>
+                    <td>88.15</td>
+                    <td><span class="speedup slower">0.12×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>2048×2048</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>0.2875</td>
+                    <td><strong>59.75</strong></td>
+                    <td>87.53</td>
+                    <td><span class="speedup slower">0.12×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>2048×2048</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>0.3141</td>
+                    <td><strong>54.70</strong></td>
+                    <td>80.13</td>
+                    <td><span class="speedup slower">0.11×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>2048×2048</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.0536</td>
+                    <td><strong>320.71</strong></td>
+                    <td>469.79</td>
+                    <td><span class="speedup slower">0.65×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>3072×3072</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.0845</td>
+                    <td><strong>686.21</strong></td>
+                    <td>670.13</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>3072×3072</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>2.0927</td>
+                    <td><strong>27.71</strong></td>
+                    <td>27.06</td>
+                    <td><span class="speedup slower">0.04×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>3072×3072</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>2.0581</td>
+                    <td><strong>28.17</strong></td>
+                    <td>27.51</td>
+                    <td><span class="speedup slower">0.04×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>3072×3072</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>1.2324</td>
+                    <td><strong>47.05</strong></td>
+                    <td>45.94</td>
+                    <td><span class="speedup slower">0.07×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>3072×3072</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>1.2350</td>
+                    <td><strong>46.95</strong></td>
+                    <td>45.85</td>
+                    <td><span class="speedup slower">0.07×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>3072×3072</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>1.3638</td>
+                    <td><strong>42.52</strong></td>
+                    <td>41.52</td>
+                    <td><span class="speedup slower">0.06×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>3072×3072</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.1830</td>
+                    <td><strong>316.77</strong></td>
+                    <td>309.35</td>
+                    <td><span class="speedup slower">0.46×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>4096×4096</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>0.1822</td>
+                    <td><strong>754.50</strong></td>
+                    <td>552.61</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>4096×4096</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>4.6713</td>
+                    <td><strong>29.42</strong></td>
+                    <td>21.55</td>
+                    <td><span class="speedup slower">0.04×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>4096×4096</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>4.7654</td>
+                    <td><strong>28.84</strong></td>
+                    <td>21.12</td>
+                    <td><span class="speedup slower">0.04×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>4096×4096</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>2.1238</td>
+                    <td><strong>64.71</strong></td>
+                    <td>47.40</td>
+                    <td><span class="speedup slower">0.09×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>4096×4096</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>2.1515</td>
+                    <td><strong>63.88</strong></td>
+                    <td>46.79</td>
+                    <td><span class="speedup slower">0.08×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>4096×4096</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>2.3616</td>
+                    <td><strong>58.20</strong></td>
+                    <td>42.63</td>
+                    <td><span class="speedup slower">0.08×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>4096×4096</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>0.3467</td>
+                    <td><strong>396.47</strong></td>
+                    <td>290.38</td>
+                    <td><span class="speedup slower">0.53×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>8192×8192</strong></td>
+                    <td><span class="kernel-badge badge-pytorch">PyTorch</span></td>
+                    <td>1.6053</td>
+                    <td><strong>684.94</strong></td>
+                    <td>250.83</td>
+                    <td><span class="speedup ">baseline</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>8192×8192</strong></td>
+                    <td><span class="kernel-badge badge-warptiling">CUDA Warptiling</span></td>
+                    <td>36.3427</td>
+                    <td><strong>30.25</strong></td>
+                    <td>11.08</td>
+                    <td><span class="speedup slower">0.04×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>8192×8192</strong></td>
+                    <td><span class="kernel-badge badge-naive">CUDA Tensor Core Naive (BF16)</span></td>
+                    <td>37.7486</td>
+                    <td><strong>29.13</strong></td>
+                    <td>10.67</td>
+                    <td><span class="speedup slower">0.04×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>8192×8192</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Warptiled (BF16)</span></td>
+                    <td>16.8718</td>
+                    <td><strong>65.17</strong></td>
+                    <td>23.87</td>
+                    <td><span class="speedup slower">0.10×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>8192×8192</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Double Buffered (BF16)</span></td>
+                    <td>17.0565</td>
+                    <td><strong>64.46</strong></td>
+                    <td>23.61</td>
+                    <td><span class="speedup slower">0.09×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>8192×8192</strong></td>
+                    <td><span class="kernel-badge badge-tensorcore">CUDA Tensor Core Async (BF16)</span></td>
+                    <td>18.8481</td>
+                    <td><strong>58.34</strong></td>
+                    <td>21.36</td>
+                    <td><span class="speedup slower">0.09×</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>8192×8192</strong></td>
+                    <td><span class="kernel-badge badge-cutlass">CUTLASS (BF16)</span></td>
+                    <td>2.9353</td>
+                    <td><strong>374.58</strong></td>
+                    <td>137.18</td>
+                    <td><span class="speedup slower">0.55×</span></td>
+                </tr>
+
+            </tbody>
+        </table>
+
+        <footer>
+            <p>Generated by CUDA GEMM Benchmark Suite • Powered by PyTorch & Plotly</p>
+        </footer>
+    </div>
+</body>
+</html>

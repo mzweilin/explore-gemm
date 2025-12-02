@@ -19,12 +19,6 @@ endif()
 
 project(explore_gemm CUDA CXX)
 
-# Set CUDA architecture if not already set
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES 89)
-endif()
-message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
 
@@ -56,12 +50,14 @@ set(CUTLASS_AVAILABLE FALSE)
 # Location 1: Local third-party directory (preferred - should be CUTLASS 3.x)
 if(EXISTS ${CMAKE_SOURCE_DIR}/third-party/cutlass/include)
     set(CUTLASS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/third-party/cutlass/include)
+    set(CUTLASS_UTILS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/third-party/cutlass/tools/util/include)
     set(CUTLASS_AVAILABLE TRUE)
     message(STATUS "CUTLASS found at ${CUTLASS_INCLUDE_DIR} (using local installation)")
 endif()
 
 if(CUTLASS_AVAILABLE)
     include_directories(${CUTLASS_INCLUDE_DIR})
+    include_directories(${CUTLASS_UTILS_INCLUDE_DIR})
 endif()
 
 # Tests - each test now only compiles its specific CUDA kernel file
@@ -143,6 +139,15 @@ if(CUTLASS_AVAILABLE)
     set_target_properties(cutlass_autotunable PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
         POSITION_INDEPENDENT_CODE ON)
+
+    # CUTLASS Hopper kernel (requires SM90a+ and CUTLASS 3.x)
+    add_executable(test_gemm_cutlass_hopper
+        ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass_hopper.cpp
+        ${CMAKE_SOURCE_DIR}/cuda/15_kernel_cutlass_hopper.cu)
+    target_link_libraries(test_gemm_cutlass_hopper "${TORCH_LIBRARIES}")
+    # Hopper GMMA instructions require sm_90a
+    set_property(TARGET test_gemm_cutlass_hopper PROPERTY CUDA_ARCHITECTURES 90a)
+    message(STATUS "Building CUTLASS Hopper kernel for SMOFF")
 endif()
 
 enable_testing()
@@ -159,10 +164,8 @@ add_test(NAME test_gemm_tensorcore_naive COMMAND test_gemm_tensorcore_naive)
 add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
 add_test(NAME test_gemm_tensorcore_double_buffered COMMAND test_gemm_tensorcore_double_buffered)
 add_test(NAME test_gemm_tensorcore_async COMMAND test_gemm_tensorcore_async)
+add_test(NAME test_gemm_cutlass_hopper COMMAND test_gemm_cutlass_hopper)
 
-if(CUTLASS_AVAILABLE)
-    add_test(NAME test_gemm_cutlass COMMAND test_gemm_cutlass)
-endif()
 
 # NOTES
 # Build with: cmake -B build

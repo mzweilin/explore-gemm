@@ -91,6 +91,7 @@ def create_cuda_extension(verbose: bool = True):
     tensorcore_async_cu = file_dir / "12_kernel_tensorcore_async.cu"
     cutlass_cu = file_dir / "13_kernel_cutlass.cu"
     cutlass_autotune_cu = file_dir / "14_kernel_cutlass_autotunable.cu"
+    cutlass_hopper_cu = file_dir / "15_kernel_cutlass_hopper.cu"
     header_file = file_dir / "gemm_kernels.cuh"
     utils_header_file = file_dir / "utils.cuh"
 
@@ -112,6 +113,7 @@ def create_cuda_extension(verbose: bool = True):
         logger.info(f"   • Tensor Core Async: {tensorcore_async_cu}")
         logger.info(f"   • CUTLASS: {cutlass_cu}")
         logger.info(f"   • CUTLASS Autotunable: {cutlass_autotune_cu}")
+        logger.info(f"   • CUTLASS Hopper: {cutlass_hopper_cu}")
         logger.info(f"   • Header: {header_file}")
         logger.info(f"   • Utils Header: {utils_header_file}")
 
@@ -135,7 +137,8 @@ def create_cuda_extension(verbose: bool = True):
         str(tensorcore_async_cu), str(header_file), str(utils_header_file)
     )
     cutlass_code, _, _ = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
-    cutlass_autotune_code, header_code, utils_code = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+    cutlass_autotune_code, _, _ = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+    cutlass_hopper_code, header_code, utils_code = get_cuda_code(str(cutlass_hopper_cu), str(header_file), str(utils_header_file))
 
     # Combine CUDA sources
     # Add preprocessor directives to enable half-precision and WMMA for Tensor Cores
@@ -170,6 +173,14 @@ def create_cuda_extension(verbose: bool = True):
 #include "cutlass/epilogue/thread/linear_combination.h"
 #include "cutlass/layout/matrix.h"
 #include "cutlass/numeric_types.h"
+
+// CUTLASS 3.x headers for Hopper
+#include "cutlass/gemm/device/gemm_universal_adapter.h"
+#include "cutlass/gemm/collective/collective_builder.hpp"
+#include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/util/packed_stride.hpp"
+#include "cute/tensor.hpp"
 
 #include <iostream>
 #include <type_traits>
@@ -210,6 +221,8 @@ namespace cg = cooperative_groups;
         + cutlass_code
         + "\n"
         + cutlass_autotune_code
+        + "\n"
+        + cutlass_hopper_code
     )
 
     # Create build directory
@@ -219,8 +232,9 @@ namespace cg = cooperative_groups;
     if verbose:
         logger.info(f"🔨 Build directory: {build_dir}")
 
-    # Determine CUTLASS include path from third-party directory
+    # Determine CUTLASS include paths from third-party directory
     cutlass_include_path = file_dir.parent / "third-party" / "cutlass" / "include"
+    cutlass_utils_include_path = file_dir.parent / "third-party" / "cutlass" / "tools" / "util" / "include"
 
     if cutlass_include_path.exists():
         if verbose:
@@ -231,9 +245,21 @@ namespace cg = cooperative_groups;
                 f"⚠️  CUTLASS headers not found at {cutlass_include_path}. CUTLASS kernels may fail to compile."
             )
 
+    if cutlass_utils_include_path.exists():
+        if verbose:
+            logger.info(f"📦 Found CUTLASS utils headers at: {cutlass_utils_include_path}")
+    else:
+        if verbose:
+            logger.warning(
+                f"⚠️  CUTLASS utils headers not found at {cutlass_utils_include_path}. CUTLASS kernels may fail to compile."
+            )
+
     # Prepare extra compiler flags
     extra_cflags = ["-O3", "-std=c++17"]
-    extra_include_paths = [str(cutlass_include_path)]
+    # Add CUDA architecture flags for Hopper (SM90a) support
+    # This enables TMA and warp specialization features
+    extra_cuda_cflags = ["-O3", "-std=c++17", "--gpu-architecture=sm_90a"]
+    extra_include_paths = [str(cutlass_include_path), str(cutlass_utils_include_path)]
 
     # Load the extension
     # Note: PyTorch adds -D__CUDA_NO_HALF_* macros by default, but we handle
@@ -266,11 +292,13 @@ namespace cg = cooperative_groups;
             "sgemm_cutlass_autotune_fp16",
             "sgemm_cutlass_autotune_bf16",
             "get_num_cutlass_configs",
+            "sgemm_cutlass_hopper_fp16",
+            "sgemm_cutlass_hopper_bf16",
         ],
         with_cuda=True,
         verbose=verbose,
         extra_cflags=extra_cflags,
-        extra_cuda_cflags=extra_cflags,
+        extra_cuda_cflags=extra_cuda_cflags,
         extra_include_paths=extra_include_paths,
         build_directory=str(build_dir),
     )

@@ -1,0 +1,1503 @@
+{
+  "timestamp": "2025-11-29T15:43:01.965000",
+  "dtype": "bfloat16",
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "results": [
+    {
+      "size": 64,
+      "dtype": "bfloat16",
+      "best_config": 6,
+      "best_time_ms": 0.008736000396311283,
+      "best_tflops": 0.06001464929206929,
+      "pytorch_time_ms": 0.018319999799132347,
+      "pytorch_tflops": 0.028618340925136404,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 2.0970694789423137,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.009216000325977802,
+          "min_time_ms": 0.008927999995648861,
+          "max_time_ms": 0.01119999960064888,
+          "tflops": 0.056888886876680304
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008960000239312649,
+          "min_time_ms": 0.008799999952316284,
+          "max_time_ms": 0.009600000455975533,
+          "tflops": 0.058514284151427634
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.009039999917149544,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.009440000168979168,
+          "tflops": 0.05799646070852137
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.009119999594986439,
+          "min_time_ms": 0.008927999995648861,
+          "max_time_ms": 0.009631999768316746,
+          "tflops": 0.0574877218512398
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008991999551653862,
+          "min_time_ms": 0.008895999751985073,
+          "max_time_ms": 0.00940799992531538,
+          "tflops": 0.05830605272923639
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008927999995648861,
+          "min_time_ms": 0.008736000396311283,
+          "max_time_ms": 0.009344000369310379,
+          "tflops": 0.058724014365537223
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008736000396311283,
+          "min_time_ms": 0.00854399986565113,
+          "max_time_ms": 0.009056000038981438,
+          "tflops": 0.06001464929206929
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008736000396311283,
+          "min_time_ms": 0.00848000030964613,
+          "max_time_ms": 0.009056000038981438,
+          "tflops": 0.06001464929206929
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.009056000038981438,
+          "min_time_ms": 0.008799999952316284,
+          "max_time_ms": 0.009983999654650688,
+          "tflops": 0.057893992683658226
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 0.008991999551653862,
+          "min_time_ms": 0.008832000195980072,
+          "max_time_ms": 0.009472000412642956,
+          "tflops": 0.05830605272923639
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.008975999895483255,
+          "min_time_ms": 0.008832000195980072,
+          "max_time_ms": 0.009472000412642956,
+          "tflops": 0.0584099828548152
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.008975999895483255,
+          "min_time_ms": 0.008799999952316284,
+          "max_time_ms": 0.009631999768316746,
+          "tflops": 0.0584099828548152
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.008960000239312649,
+          "min_time_ms": 0.008799999952316284,
+          "max_time_ms": 0.009375999681651592,
+          "tflops": 0.058514284151427634
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008848000317811966,
+          "min_time_ms": 0.008704000152647495,
+          "max_time_ms": 0.009119999594986439,
+          "tflops": 0.05925497074684236
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.008944000117480755,
+          "min_time_ms": 0.008767999708652496,
+          "max_time_ms": 0.009344000369310379,
+          "tflops": 0.05861896166294724
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.008991999551653862,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.00940799992531538,
+          "tflops": 0.05830605272923639
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    },
+    {
+      "size": 128,
+      "dtype": "bfloat16",
+      "best_config": 5,
+      "best_time_ms": 0.00886400043964386,
+      "best_tflops": 0.47318409205409734,
+      "pytorch_time_ms": 0.018112000077962875,
+      "pytorch_tflops": 0.2315759707346329,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 2.043321207088138,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.009952000342309475,
+          "min_time_ms": 0.00979200005531311,
+          "max_time_ms": 0.01017600018531084,
+          "tflops": 0.42145336170945746
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008991999551653862,
+          "min_time_ms": 0.008832000195980072,
+          "max_time_ms": 0.009216000325977802,
+          "tflops": 0.4664484218338911
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008991999551653862,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.009344000369310379,
+          "tflops": 0.4664484218338911
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008975999895483255,
+          "min_time_ms": 0.008832000195980072,
+          "max_time_ms": 0.009375999681651592,
+          "tflops": 0.4672798628385216
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.009056000038981438,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.009312000125646591,
+          "tflops": 0.4631519414692658
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.00886400043964386,
+          "min_time_ms": 0.008704000152647495,
+          "max_time_ms": 0.009216000325977802,
+          "tflops": 0.47318409205409734
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.00886400043964386,
+          "min_time_ms": 0.008704000152647495,
+          "max_time_ms": 0.009088000282645226,
+          "tflops": 0.47318409205409734
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008927999995648861,
+          "min_time_ms": 0.008767999708652496,
+          "max_time_ms": 0.009375999681651592,
+          "tflops": 0.4697921149242978
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.009056000038981438,
+          "min_time_ms": 0.008895999751985073,
+          "max_time_ms": 0.009503999724984169,
+          "tflops": 0.4631519414692658
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 0.00902399979531765,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.009375999681651592,
+          "tflops": 0.464794336783599
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.009088000282645226,
+          "min_time_ms": 0.008895999751985073,
+          "max_time_ms": 0.009440000168979168,
+          "tflops": 0.46152111240682886
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.009568000212311745,
+          "min_time_ms": 0.009440000168979168,
+          "max_time_ms": 0.009855999611318111,
+          "tflops": 0.438367883249305
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.009535999968647957,
+          "min_time_ms": 0.009344000369310379,
+          "max_time_ms": 0.009727999567985535,
+          "tflops": 0.4398389276205798
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008895999751985073,
+          "min_time_ms": 0.008736000396311283,
+          "max_time_ms": 0.009184000082314014,
+          "tflops": 0.4714820275331138
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.009855999611318111,
+          "min_time_ms": 0.009727999567985535,
+          "max_time_ms": 0.010048000141978264,
+          "tflops": 0.4255584583407939
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.010111999697983265,
+          "min_time_ms": 0.009983999654650688,
+          "max_time_ms": 0.010367999784648418,
+          "tflops": 0.41478482251502746
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    },
+    {
+      "size": 256,
+      "dtype": "bfloat16",
+      "best_config": 7,
+      "best_time_ms": 0.008832000195980072,
+      "best_tflops": 3.799188321493976,
+      "pytorch_time_ms": 0.018223999999463558,
+      "pytorch_tflops": 1.841222124724962,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 2.0634057512542063,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.012671999633312225,
+          "min_time_ms": 0.012480000033974648,
+          "max_time_ms": 0.012864000163972378,
+          "tflops": 2.6479192685416373
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.009824000298976898,
+          "min_time_ms": 0.009664000011980534,
+          "max_time_ms": 0.010015999898314476,
+          "tflops": 3.415556899310606
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.00916799996048212,
+          "min_time_ms": 0.00902399979531765,
+          "max_time_ms": 0.009375999681651592,
+          "tflops": 3.6599511501563597
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008975999895483255,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.009279999881982803,
+          "tflops": 3.7382389027081726
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008960000239312649,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.009344000369310379,
+          "tflops": 3.7449141856913686
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.008895999751985073,
+          "min_time_ms": 0.008736000396311283,
+          "max_time_ms": 0.009151999838650227,
+          "tflops": 3.7718562202649104
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.00886400043964386,
+          "min_time_ms": 0.008704000152647495,
+          "max_time_ms": 0.009119999594986439,
+          "tflops": 3.7854727364327787
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008832000195980072,
+          "min_time_ms": 0.00863999966531992,
+          "max_time_ms": 0.009056000038981438,
+          "tflops": 3.799188321493976
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.009279999881982803,
+          "min_time_ms": 0.009119999594986439,
+          "max_time_ms": 0.009568000212311745,
+          "tflops": 3.6157793563280327
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 0.008975999895483255,
+          "min_time_ms": 0.00886400043964386,
+          "max_time_ms": 0.009344000369310379,
+          "tflops": 3.7382389027081726
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.00902399979531765,
+          "min_time_ms": 0.008895999751985073,
+          "max_time_ms": 0.009279999881982803,
+          "tflops": 3.718354694268792
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.012543999589979649,
+          "min_time_ms": 0.012384000234305859,
+          "max_time_ms": 0.012768000364303589,
+          "tflops": 2.674938862944784
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.012480000033974648,
+          "min_time_ms": 0.012319999746978283,
+          "max_time_ms": 0.012736000120639801,
+          "tflops": 2.688656402937007
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.00886400043964386,
+          "min_time_ms": 0.008736000396311283,
+          "max_time_ms": 0.009184000082314014,
+          "tflops": 3.7854727364327787
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.012896000407636166,
+          "min_time_ms": 0.012736000120639801,
+          "max_time_ms": 0.013088000006973743,
+          "tflops": 2.601925476067081
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.012912000063806772,
+          "min_time_ms": 0.012736000120639801,
+          "max_time_ms": 0.013151999562978745,
+          "tflops": 2.5987013502311997
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    },
+    {
+      "size": 512,
+      "dtype": "bfloat16",
+      "best_config": 6,
+      "best_time_ms": 0.008799999952316284,
+      "best_tflops": 30.504029256198347,
+      "pytorch_time_ms": 0.01793600060045719,
+      "pytorch_tflops": 14.966293878979771,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 2.038181897459691,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.016672000288963318,
+          "min_time_ms": 0.01651199907064438,
+          "max_time_ms": 0.016863999888300896,
+          "tflops": 16.100974768918483
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.01244799979031086,
+          "min_time_ms": 0.01228800043463707,
+          "max_time_ms": 0.012608000077307224,
+          "tflops": 21.564545350405766
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.011552000418305397,
+          "min_time_ms": 0.011359999887645245,
+          "max_time_ms": 0.01190400030463934,
+          "tflops": 23.23714043280633
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.0098879998549819,
+          "min_time_ms": 0.009759999811649323,
+          "max_time_ms": 0.010111999697983265,
+          "tflops": 27.14759910365021
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.009600000455975533,
+          "min_time_ms": 0.009472000412642956,
+          "max_time_ms": 0.009824000298976898,
+          "tflops": 27.962025338541725
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.009375999681651592,
+          "min_time_ms": 0.009216000325977802,
+          "max_time_ms": 0.009631999768316746,
+          "tflops": 28.630062405539118
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008799999952316284,
+          "min_time_ms": 0.008671999908983707,
+          "max_time_ms": 0.009088000282645226,
+          "tflops": 30.504029256198347
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008799999952316284,
+          "min_time_ms": 0.008671999908983707,
+          "max_time_ms": 0.00902399979531765,
+          "tflops": 30.504029256198347
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.011615999974310398,
+          "min_time_ms": 0.011455999687314034,
+          "max_time_ms": 0.01196799986064434,
+          "tflops": 23.10911299876583
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 0.009391999803483486,
+          "min_time_ms": 0.009247999638319016,
+          "max_time_ms": 0.009568000212311745,
+          "tflops": 28.58128850262938
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.009279999881982803,
+          "min_time_ms": 0.009088000282645226,
+          "max_time_ms": 0.009568000212311745,
+          "tflops": 28.92623485062426
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.01651199907064438,
+          "min_time_ms": 0.016383999958634377,
+          "max_time_ms": 0.01679999940097332,
+          "tflops": 16.256993163064923
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.016383999958634377,
+          "min_time_ms": 0.0161920003592968,
+          "max_time_ms": 0.016672000288963318,
+          "tflops": 16.384000041365624
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.008895999751985073,
+          "min_time_ms": 0.008736000396311283,
+          "max_time_ms": 0.009184000082314014,
+          "tflops": 30.174849762119283
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.01724799908697605,
+          "min_time_ms": 0.017023999243974686,
+          "max_time_ms": 0.01744000054895878,
+          "tflops": 15.563280972266247
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.016896000131964684,
+          "min_time_ms": 0.016736000776290894,
+          "max_time_ms": 0.01711999997496605,
+          "tflops": 15.88751502742715
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    },
+    {
+      "size": 1024,
+      "dtype": "bfloat16",
+      "best_config": 10,
+      "best_time_ms": 0.012640000320971012,
+      "best_tflops": 169.89585391363573,
+      "pytorch_time_ms": 0.018848000094294548,
+      "pytorch_tflops": 113.93695019399229,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 1.491139210101431,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.024768000468611717,
+          "min_time_ms": 0.02457600086927414,
+          "max_time_ms": 0.02502400055527687,
+          "tflops": 86.70395701588782
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.017855999991297722,
+          "min_time_ms": 0.017696000635623932,
+          "max_time_ms": 0.0180479995906353,
+          "tflops": 120.26678142062023
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.016224000602960587,
+          "min_time_ms": 0.016063999384641647,
+          "max_time_ms": 0.016383999958634377,
+          "tflops": 132.3646183548664
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.013856000266969204,
+          "min_time_ms": 0.01375999953597784,
+          "max_time_ms": 0.014047999866306782,
+          "tflops": 154.98582611313202
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.013472000136971474,
+          "min_time_ms": 0.013344000093638897,
+          "max_time_ms": 0.013632000423967838,
+          "tflops": 159.40347581400465
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.015936000272631645,
+          "min_time_ms": 0.01583999954164028,
+          "max_time_ms": 0.016256000846624374,
+          "tflops": 134.75675271467398
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.017152000218629837,
+          "min_time_ms": 0.01692800037562847,
+          "max_time_ms": 0.017472000792622566,
+          "tflops": 125.20310288169695
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.014431999996304512,
+          "min_time_ms": 0.014271999709308147,
+          "max_time_ms": 0.01462399959564209,
+          "tflops": 148.80014194497568
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.016416000202298164,
+          "min_time_ms": 0.016256000846624374,
+          "max_time_ms": 0.016704000532627106,
+          "tflops": 130.81649741325916
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 0.012896000407636166,
+          "min_time_ms": 0.012768000364303589,
+          "max_time_ms": 0.013151999562978745,
+          "tflops": 166.52323046829318
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.012640000320971012,
+          "min_time_ms": 0.012480000033974648,
+          "max_time_ms": 0.012799999676644802,
+          "tflops": 169.89585391363573
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.024512000381946564,
+          "min_time_ms": 0.024320000782608986,
+          "max_time_ms": 0.02470399998128414,
+          "tflops": 87.6094816635876
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.024064000695943832,
+          "min_time_ms": 0.02393599972128868,
+          "max_time_ms": 0.024320000782608986,
+          "tflops": 89.24050805741435
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.014015999622642994,
+          "min_time_ms": 0.013887999579310417,
+          "max_time_ms": 0.014175999909639359,
+          "tflops": 153.21658859998237
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.025631999596953392,
+          "min_time_ms": 0.025439999997615814,
+          "max_time_ms": 0.025855999439954758,
+          "tflops": 83.78135462577211
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.024831999093294144,
+          "min_time_ms": 0.024639999493956566,
+          "max_time_ms": 0.025087999179959297,
+          "tflops": 86.48049800307562
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    },
+    {
+      "size": 2048,
+      "dtype": "bfloat16",
+      "best_config": 0,
+      "best_time_ms": 0.0427200011909008,
+      "best_tflops": 402.1504846694444,
+      "pytorch_time_ms": 0.035679999738931656,
+      "pytorch_tflops": 481.49857930784856,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 0.835205963115267,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.0427200011909008,
+          "min_time_ms": 0.0424639992415905,
+          "max_time_ms": 0.043168000876903534,
+          "tflops": 402.1504846694444
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.0533440001308918,
+          "min_time_ms": 0.05299200117588043,
+          "max_time_ms": 0.05385600030422211,
+          "tflops": 322.05813478264156
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.04382399842143059,
+          "min_time_ms": 0.04358400031924248,
+          "max_time_ms": 0.044224001467227936,
+          "tflops": 392.0196650883135
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.05857599899172783,
+          "min_time_ms": 0.05782400071620941,
+          "max_time_ms": 0.06489600241184235,
+          "tflops": 293.29195369636227
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.05708799883723259,
+          "min_time_ms": 0.05686400085687637,
+          "max_time_ms": 0.05756799876689911,
+          "tflops": 300.93661599494266
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.09177599847316742,
+          "min_time_ms": 0.09084799885749817,
+          "max_time_ms": 0.09273599833250046,
+          "tflops": 187.19348707519518
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.10651199892163277,
+          "min_time_ms": 0.10521599650382996,
+          "max_time_ms": 0.11036799848079681,
+          "tflops": 161.2951532027885
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.08342400193214417,
+          "min_time_ms": 0.08297599852085114,
+          "max_time_ms": 0.08406399935483932,
+          "tflops": 205.93436883996347
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.04942400008440018,
+          "min_time_ms": 0.04915200173854828,
+          "max_time_ms": 0.049855999648571014,
+          "tflops": 347.6017553144697
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 0.05315199866890907,
+          "min_time_ms": 0.05283199995756149,
+          "max_time_ms": 0.05347200110554695,
+          "tflops": 323.2215083954925
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.0536159984767437,
+          "min_time_ms": 0.053247999399900436,
+          "max_time_ms": 0.054048001766204834,
+          "tflops": 320.424307521791
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.04508800059556961,
+          "min_time_ms": 0.04479999840259552,
+          "max_time_ms": 0.045504000037908554,
+          "tflops": 381.02974088605094
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.045264000073075294,
+          "min_time_ms": 0.04483199864625931,
+          "max_time_ms": 0.04569600149989128,
+          "tflops": 379.54818743956355
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.0650080032646656,
+          "min_time_ms": 0.06467200070619583,
+          "max_time_ms": 0.06540799885988235,
+          "tflops": 264.2731405555711
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.04588799923658371,
+          "min_time_ms": 0.045632001012563705,
+          "max_time_ms": 0.04630399867892265,
+          "tflops": 374.38697415039036
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.04444799944758415,
+          "min_time_ms": 0.04416000097990036,
+          "max_time_ms": 0.04483199864625931,
+          "tflops": 386.51614015293467
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    },
+    {
+      "size": 4096,
+      "dtype": "bfloat16",
+      "best_config": 0,
+      "best_time_ms": 0.2861279994249344,
+      "best_tflops": 480.34080463368656,
+      "pytorch_time_ms": 0.18543999642133713,
+      "pytorch_tflops": 741.1505399284292,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 0.6481015377524676,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.2861279994249344,
+          "min_time_ms": 0.2852799892425537,
+          "max_time_ms": 0.3040960133075714,
+          "tflops": 480.34080463368656
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.3964639902114868,
+          "min_time_ms": 0.3952319920063019,
+          "max_time_ms": 0.39897599816322327,
+          "tflops": 346.6618832108449
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.3221439868211746,
+          "min_time_ms": 0.31516799330711365,
+          "max_time_ms": 0.32364800572395325,
+          "tflops": 426.6382707565289
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.4219839870929718,
+          "min_time_ms": 0.4211199879646301,
+          "max_time_ms": 0.4259200096130371,
+          "tflops": 325.6970825334169
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 0.42401599884033203,
+          "min_time_ms": 0.420991986989975,
+          "max_time_ms": 0.4320000112056732,
+          "tflops": 324.1362444999491
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 0.6967040002346039,
+          "min_time_ms": 0.6922879815101624,
+          "max_time_ms": 0.7052479982376099,
+          "tflops": 197.2702229723378
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.8300639986991882,
+          "min_time_ms": 0.8283200263977051,
+          "max_time_ms": 0.8318399786949158,
+          "tflops": 165.57633349643356
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.6558399796485901,
+          "min_time_ms": 0.6520320177078247,
+          "max_time_ms": 0.6589440107345581,
+          "tflops": 209.56171892058495
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.3470720052719116,
+          "min_time_ms": 0.34591999650001526,
+          "max_time_ms": 0.35071998834609985,
+          "tflops": 395.99550348154474
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 0.38896000385284424,
+          "min_time_ms": 0.38761600852012634,
+          "max_time_ms": 0.39001598954200745,
+          "tflops": 353.34983574300213
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.3954239934682846,
+          "min_time_ms": 0.3927359879016876,
+          "max_time_ms": 0.4140479862689972,
+          "tflops": 347.57363170230445
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.3322079926729202,
+          "min_time_ms": 0.3293119966983795,
+          "max_time_ms": 0.3359360098838806,
+          "tflops": 413.7135665104763
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 0.3189280033111572,
+          "min_time_ms": 0.31753599643707275,
+          "max_time_ms": 0.32368001341819763,
+          "tflops": 430.940375398487
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 0.5567039847373962,
+          "min_time_ms": 0.492031991481781,
+          "max_time_ms": 0.5815359950065613,
+          "tflops": 246.8797731649641
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 0.3789919912815094,
+          "min_time_ms": 0.3726719915866852,
+          "max_time_ms": 0.392192006111145,
+          "tflops": 362.6434242245306
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 0.33798399567604065,
+          "min_time_ms": 0.33692800998687744,
+          "max_time_ms": 0.35660800337791443,
+          "tflops": 406.64337729096474
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    },
+    {
+      "size": 8192,
+      "dtype": "bfloat16",
+      "best_config": 0,
+      "best_time_ms": 2.4653600454330444,
+      "best_tflops": 445.98420008176487,
+      "pytorch_time_ms": 1.6821280121803284,
+      "pytorch_tflops": 653.643254148561,
+      "triton_time_ms": null,
+      "triton_tflops": null,
+      "speedup_vs_pytorch": 0.6823052135108565,
+      "triton_speedup_vs_pytorch": null,
+      "all_results": [
+        {
+          "config_id": 0,
+          "config_name": "128x256x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 2.4653600454330444,
+          "min_time_ms": 2.461535930633545,
+          "max_time_ms": 2.5137600898742676,
+          "tflops": 445.98420008176487
+        },
+        {
+          "config_id": 1,
+          "config_name": "64x256x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 3.2212159633636475,
+          "min_time_ms": 3.162368059158325,
+          "max_time_ms": 3.2760000228881836,
+          "tflops": 341.3343409076712
+        },
+        {
+          "config_id": 2,
+          "config_name": "128x128x32_W64x64x32_S4",
+          "status": "success",
+          "median_time_ms": 2.9090880155563354,
+          "min_time_ms": 2.8226239681243896,
+          "max_time_ms": 3.1064319610595703,
+          "tflops": 377.9574979843739
+        },
+        {
+          "config_id": 3,
+          "config_name": "128x64x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 4.1448798179626465,
+          "min_time_ms": 3.9693760871887207,
+          "max_time_ms": 4.253600120544434,
+          "tflops": 265.26984522230333
+        },
+        {
+          "config_id": 4,
+          "config_name": "64x128x32_W32x64x32_S4",
+          "status": "success",
+          "median_time_ms": 3.6930559873580933,
+          "min_time_ms": 3.5858240127563477,
+          "max_time_ms": 3.696063995361328,
+          "tflops": 297.72406146557205
+        },
+        {
+          "config_id": 5,
+          "config_name": "128x32x32_W64x32x32_S4",
+          "status": "success",
+          "median_time_ms": 10.024096012115479,
+          "min_time_ms": 9.152671813964844,
+          "max_time_ms": 10.295680046081543,
+          "tflops": 109.68686118400015
+        },
+        {
+          "config_id": 6,
+          "config_name": "64x32x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 10.748639583587646,
+          "min_time_ms": 10.728287696838379,
+          "max_time_ms": 10.770879745483398,
+          "tflops": 102.29309664963282
+        },
+        {
+          "config_id": 7,
+          "config_name": "32x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 6.346591949462891,
+          "min_time_ms": 6.245791912078857,
+          "max_time_ms": 6.435488224029541,
+          "tflops": 173.2444178751796
+        },
+        {
+          "config_id": 8,
+          "config_name": "128x128x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 2.9329439401626587,
+          "min_time_ms": 2.8789119720458984,
+          "max_time_ms": 3.021984100341797,
+          "tflops": 374.8832743509656
+        },
+        {
+          "config_id": 9,
+          "config_name": "128x64x64_W64x32x64_S4",
+          "status": "success",
+          "median_time_ms": 4.712944030761719,
+          "min_time_ms": 3.6237759590148926,
+          "max_time_ms": 4.8942718505859375,
+          "tflops": 233.29613519689812
+        },
+        {
+          "config_id": 10,
+          "config_name": "64x128x64_W32x64x64_S4",
+          "status": "success",
+          "median_time_ms": 3.604528069496155,
+          "min_time_ms": 3.525984048843384,
+          "max_time_ms": 3.730976104736328,
+          "tflops": 305.0362229332537
+        },
+        {
+          "config_id": 11,
+          "config_name": "256x256x32_W64x64x32_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 12,
+          "config_name": "256x128x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 2.5983200073242188,
+          "min_time_ms": 2.575103998184204,
+          "max_time_ms": 2.6392641067504883,
+          "tflops": 423.16251450039454
+        },
+        {
+          "config_id": 13,
+          "config_name": "128x256x32_W64x64x32_S3",
+          "status": "success",
+          "median_time_ms": 2.526095986366272,
+          "min_time_ms": 2.5235838890075684,
+          "max_time_ms": 2.545759916305542,
+          "tflops": 435.2612227366787
+        },
+        {
+          "config_id": 14,
+          "config_name": "64x64x32_W32x32x32_S5",
+          "status": "success",
+          "median_time_ms": 5.7651519775390625,
+          "min_time_ms": 5.7412800788879395,
+          "max_time_ms": 5.783616065979004,
+          "tflops": 190.71685049408572
+        },
+        {
+          "config_id": 15,
+          "config_name": "256x256x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 16,
+          "config_name": "256x128x64_W64x64x64_S3",
+          "status": "success",
+          "median_time_ms": 2.5751999616622925,
+          "min_time_ms": 2.5621440410614014,
+          "max_time_ms": 2.7431681156158447,
+          "tflops": 426.9616511900943
+        },
+        {
+          "config_id": 17,
+          "config_name": "128x256x64_W64x64x64_S4",
+          "status": "success",
+          "median_time_ms": 2.5720479488372803,
+          "min_time_ms": 2.5685760974884033,
+          "max_time_ms": 2.6470720767974854,
+          "tflops": 427.48488739218294
+        },
+        {
+          "config_id": 18,
+          "config_name": "256x256x64_W64x64x64_S4",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        },
+        {
+          "config_id": 19,
+          "config_name": "128x128x64_W64x64x64_S3",
+          "status": "failed",
+          "median_time_ms": null,
+          "tflops": null
+        }
+      ]
+    }
+  ]
+}

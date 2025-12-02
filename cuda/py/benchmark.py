@@ -40,6 +40,8 @@ Available kernels:
     - tensorcore_async_bf16: CUDA Tensor Core with async pipeline (BF16)
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs (requires -d float16)
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs (requires -d bfloat16)
+    - cutlass_hopper_fp16: CUTLASS Hopper GEMM with FP16 (SM90+, requires -d float16)
+    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, requires -d bfloat16)
 
 Note: When using -d float16 or -d bfloat16 without specifying kernels, FP32-only
 kernels are automatically filtered out. If you explicitly request FP32-only kernels
@@ -62,6 +64,7 @@ os.environ["LD_LIBRARY_PATH"] = (
 )
 
 import torch
+import numpy as np
 from loguru import logger
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -74,6 +77,34 @@ from cuda_extension_loader import create_cuda_extension
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+
+# Cache-flushing tensor size (16MB to flush typical L2 caches)
+_CACHE_FLUSH_SIZE = 4 * 1024 * 1024  # 16MB in float32 elements
+
+# Global cache flush buffer (lazily initialized)
+_cache_flush_buffer = None
+
+
+def get_cache_flush_buffer():
+    """Get or create the cache flush buffer."""
+    global _cache_flush_buffer
+    if _cache_flush_buffer is None:
+        _cache_flush_buffer = torch.empty(
+            _CACHE_FLUSH_SIZE, dtype=torch.int8, device="cuda"
+        )
+    return _cache_flush_buffer
+
+
+def flush_l2_cache():
+    """Flush the L2 cache by performing a dummy operation on a large buffer.
+
+    This helps eliminate cache state artifacts between benchmark iterations.
+    """
+    cache_buffer = get_cache_flush_buffer()
+    # Perform a simple operation to flush cache
+    cache_buffer.zero_()
+    torch.cuda.synchronize()
 
 
 # Load CUDA kernels
@@ -283,15 +314,53 @@ def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
+def cuda_cutlass_hopper_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for CUTLASS Hopper GEMM kernel with FP16 inputs.
+
+    Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
+    """
+    # CUTLASS Hopper outputs FP32 for precision
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_cutlass_hopper_fp16(a, b, c_fp32)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
+def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Wrapper for CUTLASS Hopper GEMM kernel with BF16 inputs.
+
+    Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
+    """
+    # CUTLASS Hopper outputs FP32 for precision
+    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c_fp32)  # type: ignore
+    # Convert to input dtype to match PyTorch behavior
+    return c_fp32.to(a.dtype)
+
+
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """PyTorch reference implementation."""
     return torch.matmul(a, b)
 
 
-def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100):
-    """Benchmark a GEMM kernel function."""
+def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100, flush_cache=True):
+    """Benchmark a GEMM kernel function.
+
+    Args:
+        kernel_fn: Kernel function to benchmark
+        a: Input matrix A
+        b: Input matrix B
+        warmup: Number of warmup iterations
+        iterations: Number of benchmark iterations
+        flush_cache: Whether to flush L2 cache between iterations
+
+    Returns:
+        Tuple of (median_time_ms, min_time_ms, max_time_ms)
+    """
     # Warmup
     for _ in range(warmup):
+        if flush_cache:
+            flush_l2_cache()
         _ = kernel_fn(a, b)
 
     # Benchmark
@@ -300,6 +369,10 @@ def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100):
     end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
 
     for i in range(iterations):
+        # Flush L2 cache before each iteration to eliminate cache state artifacts
+        if flush_cache:
+            flush_l2_cache()
+
         start_events[i].record()
         _ = kernel_fn(a, b)
         end_events[i].record()
@@ -314,11 +387,12 @@ def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100):
     trim_count = max(1, iterations // 10)
     times_ms_trimmed = times_ms_sorted[trim_count:-trim_count]
 
-    avg_time_ms = sum(times_ms_trimmed) / len(times_ms_trimmed)
+    # Use median instead of average for more robust comparison
+    median_time_ms = float(np.median(times_ms_trimmed))
     min_time_ms = min(times_ms_trimmed)
     max_time_ms = max(times_ms_trimmed)
 
-    return avg_time_ms, min_time_ms, max_time_ms
+    return median_time_ms, min_time_ms, max_time_ms
 
 
 def calculate_metrics(M, N, K, avg_time_ms, element_size: int = 4):
@@ -981,6 +1055,12 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         cuda_cutlass_fp16_gemm,
                         "⚡",
                     ),
+                    (
+                        "cutlass_hopper_fp16",
+                        "CUTLASS Hopper (FP16)",
+                        cuda_cutlass_hopper_fp16_gemm,
+                        "🔮",
+                    ),
                 ]
             )
         elif dtype == "bfloat16":
@@ -1015,6 +1095,12 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         "CUTLASS (BF16)",
                         cuda_cutlass_bf16_gemm,
                         "⚡",
+                    ),
+                    (
+                        "cutlass_hopper_bf16",
+                        "CUTLASS Hopper (BF16)",
+                        cuda_cutlass_hopper_bf16_gemm,
+                        "🔮",
                     ),
                 ]
             )
@@ -1171,6 +1257,8 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             "cutlass_fp16",
             "cutlass_bf16",
             "cutlass_fp32",
+            "cutlass_hopper_fp16",
+            "cutlass_hopper_bf16",
         ],
         case_sensitive=False,
     ),
@@ -1228,11 +1316,11 @@ def main(kernels, dtype):
         # Add Tensor Core and CUTLASS kernels for FP16/BF16
         if dtype == "float16":
             kernels_to_run.extend(
-                ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "tensorcore_async_fp16", "cutlass_fp16"]
+                ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "tensorcore_async_fp16", "cutlass_fp16", "cutlass_hopper_fp16"]
             )
         elif dtype == "bfloat16":
             kernels_to_run.extend(
-                ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "tensorcore_async_bf16", "cutlass_bf16"]
+                ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "tensorcore_async_bf16", "cutlass_bf16", "cutlass_hopper_bf16"]
             )
     else:
         kernels_to_run = list(kernels)

@@ -233,7 +233,7 @@ def benchmark_config(
     warmup: int = 10,
     iterations: int = 100,
     flush_cache: bool = True,
-    adaptive_iterations: bool = True,
+    adaptive_iterations: bool = False,
     target_time_ms: float = 1000.0,
 ) -> Optional[Tuple[float, float, float]]:
     """Benchmark a single CUTLASS configuration with robust measurement practices.
@@ -343,7 +343,7 @@ def benchmark_triton(
     warmup: int = 10,
     iterations: int = 100,
     flush_cache: bool = True,
-    adaptive_iterations: bool = True,
+    adaptive_iterations: bool = False,
     target_time_ms: float = 1000.0,
 ) -> Optional[Tuple[float, float, float]]:
     """Benchmark Triton persistent matmul kernel with robust measurement practices.
@@ -435,7 +435,7 @@ def benchmark_pytorch(
     warmup: int = 10,
     iterations: int = 100,
     flush_cache: bool = True,
-    adaptive_iterations: bool = True,
+    adaptive_iterations: bool = False,
     target_time_ms: float = 1000.0,
 ) -> Optional[Tuple[float, float, float]]:
     """Benchmark PyTorch matmul as baseline with robust measurement practices.
@@ -526,7 +526,7 @@ def autotune_size(
     dtype: str,
     num_configs: int = 15,
     flush_cache: bool = True,
-    adaptive_iterations: bool = True,
+    adaptive_iterations: bool = False,
     target_time_ms: float = 1000.0,
 ) -> Dict:
     """Autotune all configurations for a given matrix size.
@@ -589,23 +589,25 @@ def autotune_size(
         pytorch_tflops = None
         logger.warning("   ❌ PyTorch benchmark failed")
 
-    # Benchmark Triton persistent kernel
-    logger.info(f"\n📊 Benchmarking Triton Persistent Kernel")
-    triton_result = benchmark_triton(
-        a,
-        b,
-        flush_cache=flush_cache,
-        adaptive_iterations=adaptive_iterations,
-        target_time_ms=target_time_ms,
-    )
-    if triton_result:
-        triton_time, _, _ = triton_result
-        triton_tflops = calculate_tflops(M, N, K, triton_time)
-        logger.success(f"   ✅ {triton_time:.4f} ms ({triton_tflops:.2f} TFLOPS)")
-    else:
-        triton_time = None
-        triton_tflops = None
-        logger.warning("   ❌ Triton benchmark failed")
+    # Benchmark Triton persistent kernel (disabled)
+    # logger.info(f"\n📊 Benchmarking Triton Persistent Kernel")
+    # triton_result = benchmark_triton(
+    #     a,
+    #     b,
+    #     flush_cache=flush_cache,
+    #     adaptive_iterations=adaptive_iterations,
+    #     target_time_ms=target_time_ms,
+    # )
+    # if triton_result:
+    #     triton_time, _, _ = triton_result
+    #     triton_tflops = calculate_tflops(M, N, K, triton_time)
+    #     logger.success(f"   ✅ {triton_time:.4f} ms ({triton_tflops:.2f} TFLOPS)")
+    # else:
+    #     triton_time = None
+    #     triton_tflops = None
+    #     logger.warning("   ❌ Triton benchmark failed")
+    triton_time = None
+    triton_tflops = None
 
     results = []
     best_config = None
@@ -1139,9 +1141,9 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
     help="Disable L2 cache flushing between iterations (faster but less accurate)",
 )
 @click.option(
-    "--no-adaptive-iters",
+    "--adaptive-iters",
     is_flag=True,
-    help="Disable adaptive iteration counts (use fixed warmup=10, iterations=100)",
+    help="Enable adaptive iteration counts based on kernel runtime (default: disabled, uses fixed warmup=10, iterations=100)",
 )
 @click.option(
     "--target-time",
@@ -1149,12 +1151,12 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
     default=1000.0,
     help="Target total benchmark time in milliseconds for adaptive iterations (default: 1000ms)",
 )
-def main(dtype, sizes, load_cache_flag, no_cache_flush, no_adaptive_iters, target_time):
+def main(dtype, sizes, load_cache_flag, no_cache_flush, adaptive_iters, target_time):
     """Autotune CUTLASS GEMM kernels to find optimal configurations.
 
-    Implements robust benchmarking practices from Triton:
+    Implements robust benchmarking practices:
     - L2 cache flushing to eliminate cache artifacts (enabled by default)
-    - Adaptive iteration counts based on kernel runtime (enabled by default)
+    - Fixed iteration counts (warmup=10, iterations=100) by default
     - Median-based statistical comparison with outlier removal
     - Proper CUDA synchronization and event timing
 
@@ -1165,11 +1167,11 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, no_adaptive_iters, targe
         # Autotune specific sizes
         python autotune_cutlass.py -d float16 -s 128 -s 256 -s 512
 
-        # Fast mode: disable cache flushing and use fixed iterations
-        python autotune_cutlass.py -d float16 --no-cache-flush --no-adaptive-iters
+        # Disable cache flushing for faster benchmarking
+        python autotune_cutlass.py -d float16 --no-cache-flush
 
-        # Custom target benchmark time (2 seconds per config)
-        python autotune_cutlass.py -d float16 --target-time 2000
+        # Enable adaptive iterations with custom target time (2 seconds per config)
+        python autotune_cutlass.py -d float16 --adaptive-iters --target-time 2000
 
         # Load cached results
         python autotune_cutlass.py -d float16 --load-cache
@@ -1199,7 +1201,7 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, no_adaptive_iters, targe
 
     # Convert CLI flags to function parameters
     flush_cache = not no_cache_flush
-    adaptive_iterations = not no_adaptive_iters
+    adaptive_iterations = adaptive_iters
 
     logger.info(f"🎯 Autotuning CUTLASS kernels for {dtype.upper()}")
     logger.info(f"📏 Sizes to test: {test_sizes}")
