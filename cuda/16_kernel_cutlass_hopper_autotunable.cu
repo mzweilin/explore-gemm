@@ -19,20 +19,10 @@ using namespace cute;
 // Autotunable version with configurable tile shapes, cluster shapes, and stages
 
 // Enum for all available Hopper configurations
+// NOTE: Temporarily using only one config for testing
 enum class HopperConfig
 {
-    T_128x128x64_C_2x1x1 = 0,
-    T_128x256x64_C_2x1x1 = 1,
-    T_256x128x64_C_1x2x1 = 2,
-    T_128x128x128_C_2x1x1 = 3,
-    T_256x256x64_C_2x2x1 = 4,
-    T_128x64x64_C_2x1x1 = 5,
-    T_64x128x64_C_1x2x1 = 6,
-    T_64x64x128_C_1x1x1 = 7,
-    T_128x128x64_C_1x1x1 = 8,
-    T_256x128x128_C_1x2x1 = 9,
-    T_128x256x128_C_2x1x1 = 10,
-    T_256x256x128_C_2x2x1 = 11,
+    T_128x128x64_C_2x1x1 = 0,  // Matches base Hopper kernel config
     Count // to get the number of configurations
 };
 
