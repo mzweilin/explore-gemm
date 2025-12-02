@@ -57,7 +57,9 @@ struct CutlassHopperGemmConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        cutlass::gemm::collective::StageCountAuto,
+        cutlass::gemm::collective::StageCountAutoCarveout<
+            sizeof(typename cutlass::arch::ClusterTransactionBarrier::ValueType) *
+            size<0>(ClusterShape{}) * size<1>(ClusterShape{}) * size<2>(ClusterShape{})>,
         KernelSchedule>::CollectiveOp;
 
     // Build epilogue collective
