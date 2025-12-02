@@ -62,7 +62,7 @@ def get_cuda_code(cuda_file: str, header_file: str, utils_header_file: str) -> T
     return cuda_code, header_code, utils_code
 
 
-def create_cuda_extension(verbose: bool = True):
+def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = False):
     """Create PyTorch extension for CUDA GEMM kernels.
 
     This function handles all the complexity of building CUDA kernels with
@@ -70,6 +70,8 @@ def create_cuda_extension(verbose: bool = True):
 
     Args:
         verbose: Whether to show verbose build output (default: True)
+        load_autotune_kernels: Whether to load autotunable kernel versions (default: False)
+                               Set to True when running autotune scripts, False for benchmarks
 
     Returns:
         The loaded CUDA extension module
@@ -132,10 +134,12 @@ def create_cuda_extension(verbose: bool = True):
         )
         logger.info(f"   • Tensor Core Async: {tensorcore_async_cu}")
         logger.info(f"   • CUTLASS: {cutlass_cu}")
-        logger.info(f"   • CUTLASS Autotunable: {cutlass_autotune_cu}")
+        if load_autotune_kernels:
+            logger.info(f"   • CUTLASS Autotunable: {cutlass_autotune_cu}")
         if has_hopper:
             logger.info(f"   • CUTLASS Hopper: {cutlass_hopper_cu}")
-            logger.info(f"   • CUTLASS Hopper Autotunable: {cutlass_hopper_autotune_cu}")
+            if load_autotune_kernels:
+                logger.info(f"   • CUTLASS Hopper Autotunable: {cutlass_hopper_autotune_cu}")
         logger.info(f"   • Header: {header_file}")
         logger.info(f"   • Utils Header: {utils_header_file}")
 
@@ -159,17 +163,26 @@ def create_cuda_extension(verbose: bool = True):
         str(tensorcore_async_cu), str(header_file), str(utils_header_file)
     )
     cutlass_code, _, _ = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
-    cutlass_autotune_code, _, _ = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+
+    # Conditionally load autotunable CUTLASS kernels
+    if load_autotune_kernels:
+        cutlass_autotune_code, _, _ = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+    else:
+        cutlass_autotune_code = ""
 
     # Conditionally load Hopper kernels based on GPU compute capability
     if has_hopper:
         cutlass_hopper_code, _, _ = get_cuda_code(str(cutlass_hopper_cu), str(header_file), str(utils_header_file))
-        cutlass_hopper_autotune_code, header_code, utils_code = get_cuda_code(str(cutlass_hopper_autotune_cu), str(header_file), str(utils_header_file))
+        if load_autotune_kernels:
+            cutlass_hopper_autotune_code, header_code, utils_code = get_cuda_code(str(cutlass_hopper_autotune_cu), str(header_file), str(utils_header_file))
+        else:
+            cutlass_hopper_autotune_code = ""
+            _, header_code, utils_code = get_cuda_code(str(cutlass_hopper_cu), str(header_file), str(utils_header_file))
     else:
         cutlass_hopper_code = ""
         cutlass_hopper_autotune_code = ""
         # Still need to read header and utils from one of the other files
-        _, header_code, utils_code = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+        _, header_code, utils_code = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
 
     # Combine CUDA sources
     # Add preprocessor directives to enable half-precision and WMMA for Tensor Cores
@@ -259,18 +272,17 @@ namespace cg = cooperative_groups;
         + tensorcore_async_code
         + "\n"
         + cutlass_code
-        + "\n"
-        + cutlass_autotune_code
     )
+
+    # Conditionally add autotunable CUTLASS kernels
+    if load_autotune_kernels:
+        combined_cuda_code += "\n" + cutlass_autotune_code
 
     # Conditionally add Hopper kernels if SM90+ is available
     if has_hopper:
-        combined_cuda_code += (
-            "\n"
-            + cutlass_hopper_code
-            + "\n"
-            + cutlass_hopper_autotune_code
-        )
+        combined_cuda_code += "\n" + cutlass_hopper_code
+        if load_autotune_kernels:
+            combined_cuda_code += "\n" + cutlass_hopper_autotune_code
 
     # Create build directory
     build_dir = file_dir / "build" / "gemm_extension"
@@ -315,7 +327,7 @@ namespace cg = cooperative_groups;
     # Load the extension
     # Note: PyTorch adds -D__CUDA_NO_HALF_* macros by default, but we handle
     # them with #undef in the source code itself (see cuda_header above)
-    # Build function list - conditionally include Hopper functions
+    # Build function list - conditionally include autotunable and Hopper functions
     functions_list = [
         "sgemm_naive",
         "sgemm_global_mem_coalesce",
@@ -337,20 +349,29 @@ namespace cg = cooperative_groups;
         "sgemm_cutlass_fp16",
         "sgemm_cutlass_bf16",
         "sgemm_cutlass_fp32",
-        "sgemm_cutlass_autotune_fp16",
-        "sgemm_cutlass_autotune_bf16",
-        "get_num_cutlass_configs",
     ]
+
+    # Add autotunable CUTLASS functions if requested
+    if load_autotune_kernels:
+        functions_list.extend([
+            "sgemm_cutlass_autotune_fp16",
+            "sgemm_cutlass_autotune_bf16",
+            "get_num_cutlass_configs",
+        ])
 
     # Add Hopper functions only if SM90+ is available
     if has_hopper:
         functions_list.extend([
             "sgemm_cutlass_hopper_fp16",
             "sgemm_cutlass_hopper_bf16",
-            "sgemm_cutlass_hopper_autotune_fp16",
-            "sgemm_cutlass_hopper_autotune_bf16",
-            "get_num_cutlass_hopper_configs",
         ])
+        # Add autotunable Hopper functions if requested
+        if load_autotune_kernels:
+            functions_list.extend([
+                "sgemm_cutlass_hopper_autotune_fp16",
+                "sgemm_cutlass_hopper_autotune_bf16",
+                "get_num_cutlass_hopper_configs",
+            ])
 
     extension = load_inline(
         name="gemm_cuda_extension",

@@ -78,7 +78,7 @@ def flush_l2_cache():
 
 # Load CUDA kernels
 logger.info("🚀 Loading CUTLASS autotunable kernels...")
-cuda_kernels = create_cuda_extension(verbose=True)
+cuda_kernels = create_cuda_extension(verbose=True, load_autotune_kernels=True)
 
 # Configuration metadata - describes each config for reporting
 CONFIG_METADATA = [

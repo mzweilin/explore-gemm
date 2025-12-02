@@ -76,7 +76,7 @@ def flush_l2_cache():
 
 # Load CUDA kernels
 logger.info("🚀 Loading CUTLASS Hopper autotunable kernels...")
-cuda_kernels = create_cuda_extension(verbose=True)
+cuda_kernels = create_cuda_extension(verbose=True, load_autotune_kernels=True)
 
 # Configuration metadata - describes each Hopper config for reporting
 # Hopper configs include cluster dimensions in addition to tile shapes
