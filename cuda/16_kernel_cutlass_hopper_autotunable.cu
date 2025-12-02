@@ -18,24 +18,12 @@ using namespace cute;
 // Hopper (SM90) Warp-Specialized GEMM using CUTLASS 3.x Collective Builder API
 // Autotunable version with configurable tile shapes, cluster shapes, and stages
 
-// Enum for all available Hopper configurations
-enum class HopperConfig
-{
-    T_128x128x64_C_2x1x1 = 0,
-    T_128x256x64_C_2x1x1 = 1,
-    T_256x128x64_C_1x2x1 = 2,
-    T_128x128x128_C_2x1x1 = 3,
-    T_256x256x64_C_2x2x1 = 4,
-    T_128x64x64_C_2x1x1 = 5,
-    T_64x128x64_C_1x2x1 = 6,
-    T_64x64x128_C_1x1x1 = 7,
-    T_128x128x64_C_1x1x1 = 8,
-    // NOTE: Configs 9, 10, 11 removed - too large for StageCountAuto to allocate 2+ stages
-    Count // to get the number of configurations
-};
+// Stage count variants: -1 = Auto, 3-6 = explicit stage counts
+constexpr int STAGE_AUTO = -1;
 
 template <int TileM, int TileN, int TileK,
           int ClusterM, int ClusterN, int ClusterK,
+          int Stages,  // -1 for Auto, or explicit count (3-6)
           typename ElementType>
 struct CutlassHopperGemmAutotuneConfig
 {
@@ -66,8 +54,14 @@ struct CutlassHopperGemmAutotuneConfig
     using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
     using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
 
-    // Build mainloop collective with automatic stage count calculation
-    // Use StageCountAuto instead of StageCountAutoCarveout for better stage selection
+    // Select stage count policy based on template parameter
+    using StageCountType = typename std::conditional<
+        Stages == STAGE_AUTO,
+        cutlass::gemm::collective::StageCountAuto,
+        cutlass::gemm::collective::StageCount<Stages>
+    >::type;
+
+    // Build mainloop collective with configurable stage count
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
         cutlass::arch::Sm90,
         cutlass::arch::OpClassTensorOp,
@@ -76,7 +70,7 @@ struct CutlassHopperGemmAutotuneConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        cutlass::gemm::collective::StageCountAuto,
+        StageCountType,
         KernelSchedule
     >::CollectiveOp;
 
@@ -189,16 +183,18 @@ cudaError_t cutlass_hopper_gemm_autotune_launch(
 
 template <int TM, int TN, int TK,
           int CM, int CN, int CK,
+          int Stages,
           typename T>
-using HopperGemmCfg = CutlassHopperGemmAutotuneConfig<TM, TN, TK, CM, CN, CK, T>;
+using HopperGemmCfg = CutlassHopperGemmAutotuneConfig<TM, TN, TK, CM, CN, CK, Stages, T>;
 
-struct HopperConfigEntry
+// Base configurations (tile and cluster shapes)
+struct HopperBaseConfig
 {
     int TM, TN, TK;     // Tile shape
     int CM, CN, CK;     // Cluster shape
 };
 
-constexpr HopperConfigEntry kHopperConfigs[] = {
+constexpr HopperBaseConfig kHopperBaseConfigs[] = {
     {128, 128, 64,  2, 1, 1},   // 0: Balanced tile with horizontal cluster
     {128, 256, 64,  2, 1, 1},   // 1: Wide tile with horizontal cluster
     {256, 128, 64,  1, 2, 1},   // 2: Tall tile with vertical cluster
@@ -208,17 +204,33 @@ constexpr HopperConfigEntry kHopperConfigs[] = {
     {64,  128, 64,  1, 2, 1},   // 6: Narrow tall tile with vertical cluster
     {64,  64,  128, 1, 1, 1},   // 7: Small tile, deep K, no cluster
     {128, 128, 64,  1, 1, 1},   // 8: Balanced tile, no cluster
-    // NOTE: Configs with very large tiles + deep K (256x256x128, etc.) removed
-    // They require too much shared memory for StageCountAuto to allocate 2+ stages
 };
+
+constexpr int NUM_BASE_CONFIGS = sizeof(kHopperBaseConfigs) / sizeof(HopperBaseConfig);
+
+// Stage count variants for each base config: Auto, 3, 4, 5, 6
+constexpr int kStageVariants[] = {STAGE_AUTO, 3, 4, 5, 6};
+constexpr int NUM_STAGE_VARIANTS = sizeof(kStageVariants) / sizeof(int);
+
+// Total number of configurations = base configs × stage variants
+constexpr int NUM_HOPPER_CONFIGS = NUM_BASE_CONFIGS * NUM_STAGE_VARIANTS;
+
+// Helper to get base config index and stage variant from flat config ID
+constexpr int get_base_config_idx(int config_id) { return config_id / NUM_STAGE_VARIANTS; }
+constexpr int get_stage_variant_idx(int config_id) { return config_id % NUM_STAGE_VARIANTS; }
 
 template <int IDX, typename T>
 struct GetHopperConfig
 {
-    static constexpr auto cfg = kHopperConfigs[IDX];
+    static constexpr int base_idx = get_base_config_idx(IDX);
+    static constexpr int stage_idx = get_stage_variant_idx(IDX);
+    static constexpr auto cfg = kHopperBaseConfigs[base_idx];
+    static constexpr int stages = kStageVariants[stage_idx];
+
     using type = HopperGemmCfg<
         cfg.TM, cfg.TN, cfg.TK,
         cfg.CM, cfg.CN, cfg.CK,
+        stages,
         T>;
 };
 
@@ -241,7 +253,7 @@ cudaError_t dispatch_hopper_config(
 
 template <typename TorchType, typename CutlassType>
 cudaError_t dispatch_cutlass_hopper_autotune(
-    HopperConfig config,
+    int config_id,
     const int M, const int N, const int K,
     const CutlassType *d_A, int lda,
     const CutlassType *d_B, int ldb,
@@ -253,20 +265,31 @@ cudaError_t dispatch_cutlass_hopper_autotune(
         return dispatch_hopper_config<CutlassType, I>(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
     };
 
-    switch (static_cast<int>(config))
+    switch (config_id)
     {
 #define CASE_CONFIG(I) \
     case I:            \
         return launch(std::integral_constant<int, I>{});
-        CASE_CONFIG(0)
-        CASE_CONFIG(1)
-        CASE_CONFIG(2)
-        CASE_CONFIG(3)
-        CASE_CONFIG(4)
-        CASE_CONFIG(5)
-        CASE_CONFIG(6)
-        CASE_CONFIG(7)
-        CASE_CONFIG(8)
+        // 9 base configs × 5 stage variants = 45 total configurations
+        // Config ID = base_idx * 5 + stage_idx
+        // Base 0 (128x128x64_C2x1x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(0) CASE_CONFIG(1) CASE_CONFIG(2) CASE_CONFIG(3) CASE_CONFIG(4)
+        // Base 1 (128x256x64_C2x1x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(5) CASE_CONFIG(6) CASE_CONFIG(7) CASE_CONFIG(8) CASE_CONFIG(9)
+        // Base 2 (256x128x64_C1x2x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(10) CASE_CONFIG(11) CASE_CONFIG(12) CASE_CONFIG(13) CASE_CONFIG(14)
+        // Base 3 (128x128x128_C2x1x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(15) CASE_CONFIG(16) CASE_CONFIG(17) CASE_CONFIG(18) CASE_CONFIG(19)
+        // Base 4 (256x256x64_C2x2x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(20) CASE_CONFIG(21) CASE_CONFIG(22) CASE_CONFIG(23) CASE_CONFIG(24)
+        // Base 5 (128x64x64_C2x1x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(25) CASE_CONFIG(26) CASE_CONFIG(27) CASE_CONFIG(28) CASE_CONFIG(29)
+        // Base 6 (64x128x64_C1x2x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(30) CASE_CONFIG(31) CASE_CONFIG(32) CASE_CONFIG(33) CASE_CONFIG(34)
+        // Base 7 (64x64x128_C1x1x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(35) CASE_CONFIG(36) CASE_CONFIG(37) CASE_CONFIG(38) CASE_CONFIG(39)
+        // Base 8 (128x128x64_C1x1x1): Auto, S3, S4, S5, S6
+        CASE_CONFIG(40) CASE_CONFIG(41) CASE_CONFIG(42) CASE_CONFIG(43) CASE_CONFIG(44)
     default:
         return cudaErrorInvalidValue;
 #undef CASE_CONFIG
@@ -324,12 +347,9 @@ void cutlass_hopper_gemm_autotune_pytorch_wrapper(
 
     cudaStream_t stream = nullptr;
 
-    // Convert int config_id to enum
-    auto config = static_cast<HopperConfig>(config_id);
-
     // Launch CUTLASS Hopper GEMM with specified config (alpha=1.0, beta=0.0 hard-coded)
     const cudaError_t err = dispatch_cutlass_hopper_autotune<TorchType, CutlassType>(
-        config, M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
+        config_id, M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
 
     TORCH_CHECK(err == cudaSuccess,
                 "CUTLASS Hopper GEMM Autotune (", dtype_name, ", config ", config_id, ") failed: ", cudaGetErrorString(err));
@@ -362,5 +382,5 @@ void sgemm_cutlass_hopper_autotune_bf16(
 // Function to get the number of available Hopper configs
 int get_num_cutlass_hopper_configs()
 {
-    return static_cast<int>(HopperConfig::Count);
+    return NUM_HOPPER_CONFIGS;
 }

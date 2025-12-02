@@ -78,65 +78,37 @@ def flush_l2_cache():
 logger.info("🚀 Loading CUTLASS Hopper autotunable kernels...")
 cuda_kernels = create_cuda_extension(verbose=True, load_autotune_kernels=True)
 
-# Configuration metadata - describes each Hopper config for reporting
-# Hopper configs include cluster dimensions in addition to tile shapes
-# NOTE: Configs with very large tiles + deep K removed due to shared memory constraints
-HOPPER_CONFIG_METADATA = [
-    {
-        "id": 0,
-        "name": "T128x128x64_C2x1x1",
-        "tile": (128, 128, 64),
-        "cluster": (2, 1, 1),
-    },
-    {
-        "id": 1,
-        "name": "T128x256x64_C2x1x1",
-        "tile": (128, 256, 64),
-        "cluster": (2, 1, 1),
-    },
-    {
-        "id": 2,
-        "name": "T256x128x64_C1x2x1",
-        "tile": (256, 128, 64),
-        "cluster": (1, 2, 1),
-    },
-    {
-        "id": 3,
-        "name": "T128x128x128_C2x1x1",
-        "tile": (128, 128, 128),
-        "cluster": (2, 1, 1),
-    },
-    {
-        "id": 4,
-        "name": "T256x256x64_C2x2x1",
-        "tile": (256, 256, 64),
-        "cluster": (2, 2, 1),
-    },
-    {
-        "id": 5,
-        "name": "T128x64x64_C2x1x1",
-        "tile": (128, 64, 64),
-        "cluster": (2, 1, 1),
-    },
-    {
-        "id": 6,
-        "name": "T64x128x64_C1x2x1",
-        "tile": (64, 128, 64),
-        "cluster": (1, 2, 1),
-    },
-    {
-        "id": 7,
-        "name": "T64x64x128_C1x1x1",
-        "tile": (64, 64, 128),
-        "cluster": (1, 1, 1),
-    },
-    {
-        "id": 8,
-        "name": "T128x128x64_C1x1x1",
-        "tile": (128, 128, 64),
-        "cluster": (1, 1, 1),
-    },
+# Base configurations (tile and cluster shapes)
+HOPPER_BASE_CONFIGS = [
+    {"name": "T128x128x64_C2x1x1", "tile": (128, 128, 64), "cluster": (2, 1, 1)},
+    {"name": "T128x256x64_C2x1x1", "tile": (128, 256, 64), "cluster": (2, 1, 1)},
+    {"name": "T256x128x64_C1x2x1", "tile": (256, 128, 64), "cluster": (1, 2, 1)},
+    {"name": "T128x128x128_C2x1x1", "tile": (128, 128, 128), "cluster": (2, 1, 1)},
+    {"name": "T256x256x64_C2x2x1", "tile": (256, 256, 64), "cluster": (2, 2, 1)},
+    {"name": "T128x64x64_C2x1x1", "tile": (128, 64, 64), "cluster": (2, 1, 1)},
+    {"name": "T64x128x64_C1x2x1", "tile": (64, 128, 64), "cluster": (1, 2, 1)},
+    {"name": "T64x64x128_C1x1x1", "tile": (64, 64, 128), "cluster": (1, 1, 1)},
+    {"name": "T128x128x64_C1x1x1", "tile": (128, 128, 64), "cluster": (1, 1, 1)},
 ]
+
+# Stage count variants: Auto, 3, 4, 5, 6
+STAGE_VARIANTS = ["Auto", "S3", "S4", "S5", "S6"]
+
+# Generate all 45 configurations (9 base configs × 5 stage variants)
+HOPPER_CONFIG_METADATA = []
+config_id = 0
+for base_idx, base_config in enumerate(HOPPER_BASE_CONFIGS):
+    for stage_idx, stage_name in enumerate(STAGE_VARIANTS):
+        HOPPER_CONFIG_METADATA.append({
+            "id": config_id,
+            "name": f"{base_config['name']}_{stage_name}",
+            "tile": base_config["tile"],
+            "cluster": base_config["cluster"],
+            "stages": stage_name,
+            "base_idx": base_idx,
+            "stage_idx": stage_idx,
+        })
+        config_id += 1
 
 
 def benchmark_config(
