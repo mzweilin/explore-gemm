@@ -16,10 +16,30 @@
 using namespace cute;
 
 // Hopper (SM90) Warp-Specialized GEMM using CUTLASS 3.x Collective Builder API
-// Demonstrates TMA (Tensor Memory Accelerator) with warp specialization
+// Autotunable version with configurable tile shapes, cluster shapes, and stages
 
-template <typename ElementType>
-struct CutlassHopperGemmConfig
+// Enum for all available Hopper configurations
+enum class HopperConfig
+{
+    T_128x128x64_C_2x1x1 = 0,
+    T_128x256x64_C_2x1x1 = 1,
+    T_256x128x64_C_1x2x1 = 2,
+    T_128x128x128_C_2x1x1 = 3,
+    T_256x256x64_C_2x2x1 = 4,
+    T_128x64x64_C_2x1x1 = 5,
+    T_64x128x64_C_1x2x1 = 6,
+    T_64x64x128_C_1x1x1 = 7,
+    T_128x128x64_C_1x1x1 = 8,
+    T_256x128x128_C_1x2x1 = 9,
+    T_128x256x128_C_2x1x1 = 10,
+    T_256x256x128_C_2x2x1 = 11,
+    Count // to get the number of configurations
+};
+
+template <int TileM, int TileN, int TileK,
+          int ClusterM, int ClusterN, int ClusterK,
+          typename ElementType>
+struct CutlassHopperGemmAutotuneConfig
 {
     // Element types
     using ElementA = ElementType;
@@ -41,8 +61,8 @@ struct CutlassHopperGemmConfig
     static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
 
     // Tile and cluster configuration for H100
-    using TileShape = Shape<_128, _128, _64>; // CTA tile (M, N, K)
-    using ClusterShape = Shape<_2, _1, _1>;   // Thread block cluster
+    using TileShape = Shape<Int<TileM>, Int<TileN>, Int<TileK>>;
+    using ClusterShape = Shape<Int<ClusterM>, Int<ClusterN>, Int<ClusterK>>;
 
     // Warp specialization schedules
     using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
@@ -57,8 +77,12 @@ struct CutlassHopperGemmConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        cutlass::gemm::collective::StageCountAuto,
-        KernelSchedule>::CollectiveOp;
+        cutlass::gemm::collective::StageCountAutoCarveout<
+            sizeof(typename cutlass::arch::ClusterTransactionBarrier::ValueType) *
+            size<0>(ClusterShape{}) * size<1>(ClusterShape{}) * size<2>(ClusterShape{})
+        >,
+        KernelSchedule
+    >::CollectiveOp;
 
     // Build epilogue collective
     using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
@@ -71,23 +95,21 @@ struct CutlassHopperGemmConfig
         ElementAccumulator,
         ElementC, LayoutC, AlignmentC,
         ElementD, LayoutD, AlignmentD,
-        EpilogueSchedule>::CollectiveOp;
+        EpilogueSchedule
+    >::CollectiveOp;
 
     // Assemble the kernel (using non-batched shape)
     using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
         Shape<int, int, int>,
         CollectiveMainloop,
-        CollectiveEpilogue>;
+        CollectiveEpilogue
+    >;
 
     using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
 
-// Type aliases for FP16 and BF16
-using FP16HopperConfig = CutlassHopperGemmConfig<cutlass::half_t>;
-using BF16HopperConfig = CutlassHopperGemmConfig<cutlass::bfloat16_t>;
-
 template <typename Config>
-cudaError_t cutlass_hopper_gemm_launch(
+cudaError_t cutlass_hopper_gemm_autotune_launch(
     int M, int N, int K,
     const typename Config::ElementA *d_A, int lda,
     const typename Config::ElementB *d_B, int ldb,
@@ -125,9 +147,10 @@ cudaError_t cutlass_hopper_gemm_launch(
     typename Config::Gemm::Arguments args{
         cutlass::gemm::GemmUniversalMode::kGemm,
         problem_shape,
-        {d_A, stride_A, d_B, stride_B},                // Mainloop args
-        {{alpha, beta}, d_D, stride_C, d_D, stride_D}, // Epilogue args (thread args first, then tensors)
-        hw_info};
+        {d_A, stride_A, d_B, stride_B},          // Mainloop args
+        {{alpha, beta}, d_D, stride_C, d_D, stride_D},  // Epilogue args
+        hw_info
+    };
 
     // Check if the problem size is supported
     cutlass::Status status = gemm_op.can_implement(args);
@@ -138,7 +161,7 @@ cudaError_t cutlass_hopper_gemm_launch(
 
     // Initialize the kernel
     size_t workspace_size = Config::Gemm::get_workspace_size(args);
-    void *workspace = nullptr;
+    void* workspace = nullptr;
 
     if (workspace_size > 0)
     {
@@ -168,12 +191,104 @@ cudaError_t cutlass_hopper_gemm_launch(
     return cudaSuccess;
 }
 
-template <typename Config, typename TorchType>
-void cutlass_hopper_gemm_pytorch_wrapper(
+template <int TM, int TN, int TK,
+          int CM, int CN, int CK,
+          typename T>
+using HopperGemmCfg = CutlassHopperGemmAutotuneConfig<TM, TN, TK, CM, CN, CK, T>;
+
+struct HopperConfigEntry
+{
+    int TM, TN, TK;     // Tile shape
+    int CM, CN, CK;     // Cluster shape
+};
+
+constexpr HopperConfigEntry kHopperConfigs[] = {
+    {128, 128, 64,  2, 1, 1},   // 0: Balanced tile with horizontal cluster
+    {128, 256, 64,  2, 1, 1},   // 1: Wide tile with horizontal cluster
+    {256, 128, 64,  1, 2, 1},   // 2: Tall tile with vertical cluster
+    {128, 128, 128, 2, 1, 1},   // 3: Deeper K with horizontal cluster
+    {256, 256, 64,  2, 2, 1},   // 4: Large tile with 2D cluster
+    {128, 64,  64,  2, 1, 1},   // 5: Narrow tile with horizontal cluster
+    {64,  128, 64,  1, 2, 1},   // 6: Narrow tall tile with vertical cluster
+    {64,  64,  128, 1, 1, 1},   // 7: Small tile, deep K, no cluster
+    {128, 128, 64,  1, 1, 1},   // 8: Balanced tile, no cluster
+    {256, 128, 128, 1, 2, 1},   // 9: Tall tile, deep K, vertical cluster
+    {128, 256, 128, 2, 1, 1},   // 10: Wide tile, deep K, horizontal cluster
+    {256, 256, 128, 2, 2, 1},   // 11: Large tile, deep K, 2D cluster
+};
+
+template <int IDX, typename T>
+struct GetHopperConfig
+{
+    static constexpr auto cfg = kHopperConfigs[IDX];
+    using type = HopperGemmCfg<
+        cfg.TM, cfg.TN, cfg.TK,
+        cfg.CM, cfg.CN, cfg.CK,
+        T>;
+};
+
+template <typename CutlassType, int IDX>
+cudaError_t dispatch_hopper_config(
+    int M, int N, int K,
+    const CutlassType *d_A, int lda,
+    const CutlassType *d_B, int ldb,
+    float *d_D, int ldd,
+    cudaStream_t stream)
+{
+    using FP16Cfg = typename GetHopperConfig<IDX, cutlass::half_t>::type;
+    using BF16Cfg = typename GetHopperConfig<IDX, cutlass::bfloat16_t>::type;
+
+    if constexpr (std::is_same_v<CutlassType, cutlass::half_t>)
+        return cutlass_hopper_gemm_autotune_launch<FP16Cfg>(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
+    else
+        return cutlass_hopper_gemm_autotune_launch<BF16Cfg>(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
+}
+
+template <typename TorchType, typename CutlassType>
+cudaError_t dispatch_cutlass_hopper_autotune(
+    HopperConfig config,
+    const int M, const int N, const int K,
+    const CutlassType *d_A, int lda,
+    const CutlassType *d_B, int ldb,
+    float *d_D, int ldd,
+    cudaStream_t stream = nullptr)
+{
+    auto launch = [&](auto I)
+    {
+        return dispatch_hopper_config<CutlassType, I>(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
+    };
+
+    switch (static_cast<int>(config))
+    {
+#define CASE_CONFIG(I) \
+    case I:            \
+        return launch(std::integral_constant<int, I>{});
+        CASE_CONFIG(0)
+        CASE_CONFIG(1)
+        CASE_CONFIG(2)
+        CASE_CONFIG(3)
+        CASE_CONFIG(4)
+        CASE_CONFIG(5)
+        CASE_CONFIG(6)
+        CASE_CONFIG(7)
+        CASE_CONFIG(8)
+        CASE_CONFIG(9)
+        CASE_CONFIG(10)
+        CASE_CONFIG(11)
+    default:
+        return cudaErrorInvalidValue;
+#undef CASE_CONFIG
+    }
+}
+
+// PyTorch wrapper template
+template <typename TorchType, typename CutlassType>
+void cutlass_hopper_gemm_autotune_pytorch_wrapper(
+    int config_id,
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix,
-    const char *dtype_name,
+    std::string&& dtype_name,
     const at::ScalarType expected_type)
 {
     // Validate input tensors
@@ -196,8 +311,7 @@ void cutlass_hopper_gemm_pytorch_wrapper(
     const int N = static_cast<int>(matrix_b.size(1));
 
     TORCH_CHECK(matrix_b.size(0) == K, "Matrix dimension mismatch");
-    TORCH_CHECK(output_matrix.size(0) == M && output_matrix.size(1) == N,
-                "Output matrix has wrong shape");
+    TORCH_CHECK(output_matrix.size(0) == M && output_matrix.size(1) == N, "Output matrix has wrong shape");
 
     // Check alignment requirements (16-byte alignment for TMA)
     TORCH_CHECK(reinterpret_cast<uintptr_t>(matrix_a.data_ptr()) % 16 == 0,
@@ -208,10 +322,8 @@ void cutlass_hopper_gemm_pytorch_wrapper(
                 "Output matrix must be 16-byte aligned for Hopper TMA");
 
     // Get device pointers
-    const auto *d_A =
-        reinterpret_cast<const typename Config::ElementA *>(matrix_a.data_ptr<TorchType>());
-    const auto *d_B =
-        reinterpret_cast<const typename Config::ElementB *>(matrix_b.data_ptr<TorchType>());
+    const auto *d_A = reinterpret_cast<const CutlassType *>(matrix_a.data_ptr<TorchType>());
+    const auto *d_B = reinterpret_cast<const CutlassType *>(matrix_b.data_ptr<TorchType>());
     auto *d_D = output_matrix.data_ptr<float>();
 
     int lda = K;
@@ -220,28 +332,43 @@ void cutlass_hopper_gemm_pytorch_wrapper(
 
     cudaStream_t stream = nullptr;
 
-    // Launch CUTLASS Hopper GEMM (alpha=1.0, beta=0.0 hard-coded)
-    const cudaError_t err = cutlass_hopper_gemm_launch<Config>(
-        M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
+    // Convert int config_id to enum
+    auto config = static_cast<HopperConfig>(config_id);
+
+    // Launch CUTLASS Hopper GEMM with specified config (alpha=1.0, beta=0.0 hard-coded)
+    const cudaError_t err = dispatch_cutlass_hopper_autotune<TorchType, CutlassType>(
+        config, M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
 
     TORCH_CHECK(err == cudaSuccess,
-                "CUTLASS Hopper GEMM (", dtype_name, ") failed: ", cudaGetErrorString(err));
+                "CUTLASS Hopper GEMM Autotune (", dtype_name, ", config ", config_id, ") failed: ", cudaGetErrorString(err));
 }
 
 // FP16 launcher
-void sgemm_cutlass_hopper_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                               torch::Tensor &output_matrix)
+void sgemm_cutlass_hopper_autotune_fp16(
+    const int config_id,
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
 {
-    cutlass_hopper_gemm_pytorch_wrapper<FP16HopperConfig, at::Half>(
-        matrix_a, matrix_b, output_matrix,
+    cutlass_hopper_gemm_autotune_pytorch_wrapper<at::Half, cutlass::half_t>(
+        config_id, matrix_a, matrix_b, output_matrix,
         "float16", at::kHalf);
 }
 
 // BF16 launcher
-void sgemm_cutlass_hopper_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                               torch::Tensor &output_matrix)
+void sgemm_cutlass_hopper_autotune_bf16(
+    const int config_id,
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
 {
-    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperConfig, at::BFloat16>(
-        matrix_a, matrix_b, output_matrix,
+    cutlass_hopper_gemm_autotune_pytorch_wrapper<at::BFloat16, cutlass::bfloat16_t>(
+        config_id, matrix_a, matrix_b, output_matrix,
         "bfloat16", at::kBFloat16);
+}
+
+// Function to get the number of available Hopper configs
+int get_num_cutlass_hopper_configs()
+{
+    return static_cast<int>(HopperConfig::Count);
 }
