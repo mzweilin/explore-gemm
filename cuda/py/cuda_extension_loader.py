@@ -96,6 +96,25 @@ def create_cuda_extension(verbose: bool = True):
     header_file = file_dir / "gemm_kernels.cuh"
     utils_header_file = file_dir / "utils.cuh"
 
+    # Check GPU compute capability to determine if we should load Hopper kernels
+    import torch
+    has_hopper = False
+    if torch.cuda.is_available():
+        device_props = torch.cuda.get_device_properties(0)
+        compute_capability = device_props.major * 10 + device_props.minor
+        has_hopper = compute_capability >= 90  # SM90 or higher (Hopper)
+
+        if verbose:
+            logger.info(f"🖥️  GPU: {device_props.name}")
+            logger.info(f"   Compute Capability: SM{device_props.major}.{device_props.minor}")
+            if has_hopper:
+                logger.info(f"   ✅ Hopper (SM90+) support detected - loading Hopper kernels")
+            else:
+                logger.warning(f"   ⚠️  Hopper (SM90+) not available - skipping Hopper kernels")
+    else:
+        if verbose:
+            logger.warning("   ⚠️  CUDA not available - skipping Hopper kernels")
+
     if verbose:
         logger.info("📂 Loading CUDA sources:")
         logger.info(f"   • Naive: {naive_cu}")
@@ -114,8 +133,9 @@ def create_cuda_extension(verbose: bool = True):
         logger.info(f"   • Tensor Core Async: {tensorcore_async_cu}")
         logger.info(f"   • CUTLASS: {cutlass_cu}")
         logger.info(f"   • CUTLASS Autotunable: {cutlass_autotune_cu}")
-        logger.info(f"   • CUTLASS Hopper: {cutlass_hopper_cu}")
-        logger.info(f"   • CUTLASS Hopper Autotunable: {cutlass_hopper_autotune_cu}")
+        if has_hopper:
+            logger.info(f"   • CUTLASS Hopper: {cutlass_hopper_cu}")
+            logger.info(f"   • CUTLASS Hopper Autotunable: {cutlass_hopper_autotune_cu}")
         logger.info(f"   • Header: {header_file}")
         logger.info(f"   • Utils Header: {utils_header_file}")
 
@@ -140,12 +160,21 @@ def create_cuda_extension(verbose: bool = True):
     )
     cutlass_code, _, _ = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
     cutlass_autotune_code, _, _ = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
-    cutlass_hopper_code, _, _ = get_cuda_code(str(cutlass_hopper_cu), str(header_file), str(utils_header_file))
-    cutlass_hopper_autotune_code, header_code, utils_code = get_cuda_code(str(cutlass_hopper_autotune_cu), str(header_file), str(utils_header_file))
+
+    # Conditionally load Hopper kernels based on GPU compute capability
+    if has_hopper:
+        cutlass_hopper_code, _, _ = get_cuda_code(str(cutlass_hopper_cu), str(header_file), str(utils_header_file))
+        cutlass_hopper_autotune_code, header_code, utils_code = get_cuda_code(str(cutlass_hopper_autotune_cu), str(header_file), str(utils_header_file))
+    else:
+        cutlass_hopper_code = ""
+        cutlass_hopper_autotune_code = ""
+        # Still need to read header and utils from one of the other files
+        _, header_code, utils_code = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
 
     # Combine CUDA sources
     # Add preprocessor directives to enable half-precision and WMMA for Tensor Cores
     # Must be at the top before any other includes
+    # Build CUDA header with conditional Hopper includes
     cuda_header = """
 // Undefine PyTorch's restrictive macros to enable Tensor Core operations
 #ifdef __CUDA_NO_HALF_OPERATORS__
@@ -177,6 +206,11 @@ def create_cuda_extension(verbose: bool = True):
 #include "cutlass/layout/matrix.h"
 #include "cutlass/numeric_types.h"
 
+"""
+
+    # Add CUTLASS 3.x headers only if Hopper is available
+    if has_hopper:
+        cuda_header += """
 // CUTLASS 3.x headers for Hopper
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/collective/collective_builder.hpp"
@@ -185,6 +219,9 @@ def create_cuda_extension(verbose: bool = True):
 #include "cutlass/util/packed_stride.hpp"
 #include "cute/tensor.hpp"
 
+"""
+
+    cuda_header += """
 #include <iostream>
 #include <type_traits>
 
@@ -224,11 +261,16 @@ namespace cg = cooperative_groups;
         + cutlass_code
         + "\n"
         + cutlass_autotune_code
-        + "\n"
-        + cutlass_hopper_code
-        + "\n"
-        + cutlass_hopper_autotune_code
     )
+
+    # Conditionally add Hopper kernels if SM90+ is available
+    if has_hopper:
+        combined_cuda_code += (
+            "\n"
+            + cutlass_hopper_code
+            + "\n"
+            + cutlass_hopper_autotune_code
+        )
 
     # Create build directory
     build_dir = file_dir / "build" / "gemm_extension"
@@ -261,48 +303,60 @@ namespace cg = cooperative_groups;
 
     # Prepare extra compiler flags
     extra_cflags = ["-O3", "-std=c++17"]
-    # Add CUDA architecture flags for Hopper (SM90a) support
-    # This enables TMA and warp specialization features
-    extra_cuda_cflags = ["-O3", "-std=c++17", "--gpu-architecture=sm_90a"]
+    # Add CUDA architecture flags
+    # For Hopper (SM90a): enables TMA and warp specialization features
+    # For non-Hopper: use sm_80 (Ampere) as baseline for tensor cores
+    if has_hopper:
+        extra_cuda_cflags = ["-O3", "-std=c++17", "--gpu-architecture=sm_90a"]
+    else:
+        extra_cuda_cflags = ["-O3", "-std=c++17"]
     extra_include_paths = [str(cutlass_include_path), str(cutlass_utils_include_path)]
 
     # Load the extension
     # Note: PyTorch adds -D__CUDA_NO_HALF_* macros by default, but we handle
     # them with #undef in the source code itself (see cuda_header above)
-    extension = load_inline(
-        name="gemm_cuda_extension",
-        cpp_sources=header_code,
-        cuda_sources=combined_cuda_code,
-        functions=[
-            "sgemm_naive",
-            "sgemm_global_mem_coalesce",
-            "sgemm_shared_mem",
-            "sgemm_blocktiling_1d",
-            "sgemm_blocktiling_2d",
-            "sgemm_vectorize",
-            "sgemm_warptiling_default",
-            "sgemm_warptiling_fp16",
-            "sgemm_warptiling_bf16",
-            "sgemm_tensorcore_naive_fp16",
-            "sgemm_tensorcore_naive_bf16",
-            "sgemm_tensorcore_fp16",
-            "sgemm_tensorcore_bf16",
-            "sgemm_tensorcore_double_buffered_fp16",
-            "sgemm_tensorcore_double_buffered_bf16",
-            "sgemm_tensorcore_async_fp16",
-            "sgemm_tensorcore_async_bf16",
-            "sgemm_cutlass_fp16",
-            "sgemm_cutlass_bf16",
-            "sgemm_cutlass_fp32",
-            "sgemm_cutlass_autotune_fp16",
-            "sgemm_cutlass_autotune_bf16",
-            "get_num_cutlass_configs",
+    # Build function list - conditionally include Hopper functions
+    functions_list = [
+        "sgemm_naive",
+        "sgemm_global_mem_coalesce",
+        "sgemm_shared_mem",
+        "sgemm_blocktiling_1d",
+        "sgemm_blocktiling_2d",
+        "sgemm_vectorize",
+        "sgemm_warptiling_default",
+        "sgemm_warptiling_fp16",
+        "sgemm_warptiling_bf16",
+        "sgemm_tensorcore_naive_fp16",
+        "sgemm_tensorcore_naive_bf16",
+        "sgemm_tensorcore_fp16",
+        "sgemm_tensorcore_bf16",
+        "sgemm_tensorcore_double_buffered_fp16",
+        "sgemm_tensorcore_double_buffered_bf16",
+        "sgemm_tensorcore_async_fp16",
+        "sgemm_tensorcore_async_bf16",
+        "sgemm_cutlass_fp16",
+        "sgemm_cutlass_bf16",
+        "sgemm_cutlass_fp32",
+        "sgemm_cutlass_autotune_fp16",
+        "sgemm_cutlass_autotune_bf16",
+        "get_num_cutlass_configs",
+    ]
+
+    # Add Hopper functions only if SM90+ is available
+    if has_hopper:
+        functions_list.extend([
             "sgemm_cutlass_hopper_fp16",
             "sgemm_cutlass_hopper_bf16",
             "sgemm_cutlass_hopper_autotune_fp16",
             "sgemm_cutlass_hopper_autotune_bf16",
             "get_num_cutlass_hopper_configs",
-        ],
+        ])
+
+    extension = load_inline(
+        name="gemm_cuda_extension",
+        cpp_sources=header_code,
+        cuda_sources=combined_cuda_code,
+        functions=functions_list,
         with_cuda=True,
         verbose=verbose,
         extra_cflags=extra_cflags,
