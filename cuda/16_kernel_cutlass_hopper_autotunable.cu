@@ -69,6 +69,7 @@ struct CutlassHopperGemmAutotuneConfig
     using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
 
     // Build mainloop collective with automatic stage count calculation
+    // Use StageCountAuto instead of StageCountAutoCarveout for better stage selection
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
         cutlass::arch::Sm90,
         cutlass::arch::OpClassTensorOp,
@@ -77,10 +78,7 @@ struct CutlassHopperGemmAutotuneConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        cutlass::gemm::collective::StageCountAutoCarveout<
-            sizeof(typename cutlass::arch::ClusterTransactionBarrier::ValueType) *
-            size<0>(ClusterShape{}) * size<1>(ClusterShape{}) * size<2>(ClusterShape{})
-        >,
+        cutlass::gemm::collective::StageCountAuto,
         KernelSchedule
     >::CollectiveOp;
 
