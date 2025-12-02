@@ -19,10 +19,18 @@ using namespace cute;
 // Autotunable version with configurable tile shapes, cluster shapes, and stages
 
 // Enum for all available Hopper configurations
-// NOTE: Temporarily using only one config for testing
 enum class HopperConfig
 {
-    T_128x128x64_C_2x1x1 = 0,  // Matches base Hopper kernel config
+    T_128x128x64_C_2x1x1 = 0,
+    T_128x256x64_C_2x1x1 = 1,
+    T_256x128x64_C_1x2x1 = 2,
+    T_128x128x128_C_2x1x1 = 3,
+    T_256x256x64_C_2x2x1 = 4,
+    T_128x64x64_C_2x1x1 = 5,
+    T_64x128x64_C_1x2x1 = 6,
+    T_64x64x128_C_1x1x1 = 7,
+    T_128x128x64_C_1x1x1 = 8,
+    // NOTE: Configs 9, 10, 11 removed - too large for StageCountAuto to allocate 2+ stages
     Count // to get the number of configurations
 };
 
@@ -200,9 +208,8 @@ constexpr HopperConfigEntry kHopperConfigs[] = {
     {64,  128, 64,  1, 2, 1},   // 6: Narrow tall tile with vertical cluster
     {64,  64,  128, 1, 1, 1},   // 7: Small tile, deep K, no cluster
     {128, 128, 64,  1, 1, 1},   // 8: Balanced tile, no cluster
-    {256, 128, 128, 1, 2, 1},   // 9: Tall tile, deep K, vertical cluster
-    {128, 256, 128, 2, 1, 1},   // 10: Wide tile, deep K, horizontal cluster
-    {256, 256, 128, 2, 2, 1},   // 11: Large tile, deep K, 2D cluster
+    // NOTE: Configs with very large tiles + deep K (256x256x128, etc.) removed
+    // They require too much shared memory for StageCountAuto to allocate 2+ stages
 };
 
 template <int IDX, typename T>
@@ -260,9 +267,6 @@ cudaError_t dispatch_cutlass_hopper_autotune(
         CASE_CONFIG(6)
         CASE_CONFIG(7)
         CASE_CONFIG(8)
-        CASE_CONFIG(9)
-        CASE_CONFIG(10)
-        CASE_CONFIG(11)
     default:
         return cudaErrorInvalidValue;
 #undef CASE_CONFIG

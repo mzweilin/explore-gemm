@@ -80,6 +80,7 @@ cuda_kernels = create_cuda_extension(verbose=True, load_autotune_kernels=True)
 
 # Configuration metadata - describes each Hopper config for reporting
 # Hopper configs include cluster dimensions in addition to tile shapes
+# NOTE: Configs with very large tiles + deep K removed due to shared memory constraints
 HOPPER_CONFIG_METADATA = [
     {
         "id": 0,
@@ -134,24 +135,6 @@ HOPPER_CONFIG_METADATA = [
         "name": "T128x128x64_C1x1x1",
         "tile": (128, 128, 64),
         "cluster": (1, 1, 1),
-    },
-    {
-        "id": 9,
-        "name": "T256x128x128_C1x2x1",
-        "tile": (256, 128, 128),
-        "cluster": (1, 2, 1),
-    },
-    {
-        "id": 10,
-        "name": "T128x256x128_C2x1x1",
-        "tile": (128, 256, 128),
-        "cluster": (2, 1, 1),
-    },
-    {
-        "id": 11,
-        "name": "T256x256x128_C2x2x1",
-        "tile": (256, 256, 128),
-        "cluster": (2, 2, 1),
     },
 ]
 
