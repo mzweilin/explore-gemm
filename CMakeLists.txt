@@ -47,10 +47,18 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
     )
 
     if(DETECTED_COMPUTE_CAP)
-        # Remove dot: "8.9" -> "89"
+        # Remove dot: "8.9" -> "89", "12.1" -> "121"
         string(REPLACE "." "" DETECTED_ARCH ${DETECTED_COMPUTE_CAP})
-        set(CMAKE_CUDA_ARCHITECTURES ${DETECTED_ARCH})
-        message(STATUS "Auto-detected CUDA architecture: ${DETECTED_ARCH} (compute capability ${DETECTED_COMPUTE_CAP})")
+
+        # For Blackwell (SM121+), map to SM100
+        # Blackwell GB10 reports compute capability 12.1, but uses sm_100
+        if(DETECTED_ARCH GREATER_EQUAL 121)
+            set(CMAKE_CUDA_ARCHITECTURES "100")
+            message(STATUS "Auto-detected CUDA architecture: 100 (Blackwell, compute capability ${DETECTED_COMPUTE_CAP})")
+        else()
+            set(CMAKE_CUDA_ARCHITECTURES ${DETECTED_ARCH})
+            message(STATUS "Auto-detected CUDA architecture: ${DETECTED_ARCH} (compute capability ${DETECTED_COMPUTE_CAP})")
+        endif()
     else()
         # Default to common architecture if detection fails
         set(CMAKE_CUDA_ARCHITECTURES "89")
