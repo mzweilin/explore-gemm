@@ -18,14 +18,24 @@ try:
 except ImportError:
     # Fallback logger if loguru is not installed
     class SimpleLogger:
-        def info(self, msg): print(f"INFO: {msg}")
-        def success(self, msg): print(f"SUCCESS: {msg}")
-        def warning(self, msg): print(f"WARNING: {msg}")
-        def error(self, msg): print(f"ERROR: {msg}")
+        def info(self, msg):
+            print(f"INFO: {msg}")
+
+        def success(self, msg):
+            print(f"SUCCESS: {msg}")
+
+        def warning(self, msg):
+            print(f"WARNING: {msg}")
+
+        def error(self, msg):
+            print(f"ERROR: {msg}")
+
     logger = SimpleLogger()
 
 
-def get_cuda_code(cuda_file: str, header_file: str, utils_header_file: str) -> Tuple[str, str, str]:
+def get_cuda_code(
+    cuda_file: str, header_file: str, utils_header_file: str
+) -> Tuple[str, str, str]:
     """Load CUDA source and header files, removing #include and #pragma once directives.
 
     Args:
@@ -74,38 +84,43 @@ def find_cuda_home():
         Path to CUDA installation, or None if not found
     """
     # Check if CUDA_HOME is already set
-    if os.environ.get('CUDA_HOME'):
-        cuda_home = Path(os.environ['CUDA_HOME'])
+    if os.environ.get("CUDA_HOME"):
+        cuda_home = Path(os.environ["CUDA_HOME"])
         if cuda_home.exists():
+            # Ensure CUDA_HOME is explicitly set in the environment if already found and valid
+            os.environ["CUDA_HOME"] = str(cuda_home)
+            logger.info(f"🔧 Using CUDA_HOME from environment: {cuda_home}")
             return str(cuda_home)
 
     # List of common CUDA installation paths
     cuda_paths = [
-        '/usr/local/cuda-13.0',
-        '/usr/local/cuda-12.8',
-        '/usr/local/cuda-12.6',
-        '/usr/local/cuda-12.4',
-        '/usr/local/cuda-12.1',
-        '/usr/local/cuda',
+        "/usr/local/cuda-13.0",
+        "/usr/local/cuda-12.8",
+        "/usr/local/cuda-12.6",
+        "/usr/local/cuda-12.4",
+        "/usr/local/cuda-12.1",
+        "/usr/local/cuda",
     ]
 
     # Try each path
     for path in cuda_paths:
         cuda_path = Path(path)
-        nvcc_path = cuda_path / 'bin' / 'nvcc'
+        nvcc_path = cuda_path / "bin" / "nvcc"
         if nvcc_path.exists():
             cuda_home = str(cuda_path)
             # Set CUDA_HOME environment variable for torch extension loader
-            os.environ['CUDA_HOME'] = cuda_home
+            os.environ["CUDA_HOME"] = cuda_home
+            logger.info(f"🔧 Found CUDA at standard path: {cuda_home}")
             return cuda_home
 
     # Try to find nvcc in PATH
     try:
-        nvcc_output = subprocess.check_output(['which', 'nvcc'], text=True).strip()
+        nvcc_output = subprocess.check_output(["which", "nvcc"], text=True).strip()
         if nvcc_output:
             # nvcc is at /path/to/cuda/bin/nvcc, get /path/to/cuda
             cuda_home = str(Path(nvcc_output).parent.parent)
-            os.environ['CUDA_HOME'] = cuda_home
+            os.environ["CUDA_HOME"] = cuda_home
+            logger.info(f"🔧 Found CUDA via `which nvcc`: {cuda_home}")
             return cuda_home
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
@@ -129,16 +144,14 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
     """
     # Find and set CUDA_HOME before building extensions
     cuda_home = find_cuda_home()
-    if cuda_home and verbose:
-        logger.info(f"🔧 Using CUDA installation at: {cuda_home}")
-    elif not cuda_home and verbose:
+    if not cuda_home and verbose:
         logger.warning("⚠️  Could not find CUDA installation. Extension build may fail.")
 
     # Also set CUDACXX to ensure nvcc is found
     if cuda_home:
-        nvcc_path = os.path.join(cuda_home, 'bin', 'nvcc')
+        nvcc_path = os.path.join(cuda_home, "bin", "nvcc")
         if os.path.exists(nvcc_path):
-            os.environ['CUDACXX'] = nvcc_path
+            os.environ["CUDACXX"] = nvcc_path
             if verbose:
                 logger.info(f"🔧 Set CUDACXX to: {nvcc_path}")
 
@@ -166,6 +179,7 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
 
     # Check GPU compute capability to determine if we should load Hopper kernels
     import torch
+
     has_hopper = False
     if torch.cuda.is_available():
         device_props = torch.cuda.get_device_properties(0)
@@ -174,11 +188,17 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
 
         if verbose:
             logger.info(f"🖥️  GPU: {device_props.name}")
-            logger.info(f"   Compute Capability: SM{device_props.major}.{device_props.minor}")
+            logger.info(
+                f"   Compute Capability: SM{device_props.major}.{device_props.minor}"
+            )
             if has_hopper:
-                logger.info(f"   ✅ Hopper (SM90+) support detected - loading Hopper kernels")
+                logger.info(
+                    f"   ✅ Hopper (SM90+) support detected - loading Hopper kernels"
+                )
             else:
-                logger.warning(f"   ⚠️  Hopper (SM90+) not available - skipping Hopper kernels")
+                logger.warning(
+                    f"   ⚠️  Hopper (SM90+) not available - skipping Hopper kernels"
+                )
     else:
         if verbose:
             logger.warning("   ⚠️  CUDA not available - skipping Hopper kernels")
@@ -205,50 +225,84 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
         if has_hopper:
             logger.info(f"   • CUTLASS Hopper: {cutlass_hopper_cu}")
             if load_autotune_kernels:
-                logger.info(f"   • CUTLASS Hopper Autotunable: {cutlass_hopper_autotune_cu}")
+                logger.info(
+                    f"   • CUTLASS Hopper Autotunable: {cutlass_hopper_autotune_cu}"
+                )
         logger.info(f"   • Header: {header_file}")
         logger.info(f"   • Utils Header: {utils_header_file}")
 
     # Read all source files
-    naive_code, _, _ = get_cuda_code(str(naive_cu), str(header_file), str(utils_header_file))
-    coalesce_code, _, _ = get_cuda_code(str(coalesce_cu), str(header_file), str(utils_header_file))
-    shared_mem_code, _, _ = get_cuda_code(str(shared_mem_cu), str(header_file), str(utils_header_file))
-    blocktiling_1d_code, _, _ = get_cuda_code(str(blocktiling_1d_cu), str(header_file), str(utils_header_file))
-    blocktiling_2d_code, _, _ = get_cuda_code(str(blocktiling_2d_cu), str(header_file), str(utils_header_file))
-    vectorize_code, _, _ = get_cuda_code(str(vectorize_cu), str(header_file), str(utils_header_file))
-    warptiling_code, _, _ = get_cuda_code(str(warptiling_cu), str(header_file), str(utils_header_file))
+    naive_code, _, _ = get_cuda_code(
+        str(naive_cu), str(header_file), str(utils_header_file)
+    )
+    coalesce_code, _, _ = get_cuda_code(
+        str(coalesce_cu), str(header_file), str(utils_header_file)
+    )
+    shared_mem_code, _, _ = get_cuda_code(
+        str(shared_mem_cu), str(header_file), str(utils_header_file)
+    )
+    blocktiling_1d_code, _, _ = get_cuda_code(
+        str(blocktiling_1d_cu), str(header_file), str(utils_header_file)
+    )
+    blocktiling_2d_code, _, _ = get_cuda_code(
+        str(blocktiling_2d_cu), str(header_file), str(utils_header_file)
+    )
+    vectorize_code, _, _ = get_cuda_code(
+        str(vectorize_cu), str(header_file), str(utils_header_file)
+    )
+    warptiling_code, _, _ = get_cuda_code(
+        str(warptiling_cu), str(header_file), str(utils_header_file)
+    )
     warptiling_multidtype_code, _, _ = get_cuda_code(
         str(warptiling_multidtype_cu), str(header_file), str(utils_header_file)
     )
-    tensorcore_naive_code, _, _ = get_cuda_code(str(tensorcore_naive_cu), str(header_file), str(utils_header_file))
-    tensorcore_code, _, _ = get_cuda_code(str(tensorcore_cu), str(header_file), str(utils_header_file))
+    tensorcore_naive_code, _, _ = get_cuda_code(
+        str(tensorcore_naive_cu), str(header_file), str(utils_header_file)
+    )
+    tensorcore_code, _, _ = get_cuda_code(
+        str(tensorcore_cu), str(header_file), str(utils_header_file)
+    )
     tensorcore_double_buffered_code, _, _ = get_cuda_code(
         str(tensorcore_double_buffered_cu), str(header_file), str(utils_header_file)
     )
     tensorcore_async_code, _, _ = get_cuda_code(
         str(tensorcore_async_cu), str(header_file), str(utils_header_file)
     )
-    cutlass_code, _, _ = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
+    cutlass_code, _, _ = get_cuda_code(
+        str(cutlass_cu), str(header_file), str(utils_header_file)
+    )
 
     # Conditionally load autotunable CUTLASS kernels
     if load_autotune_kernels:
-        cutlass_autotune_code, _, _ = get_cuda_code(str(cutlass_autotune_cu), str(header_file), str(utils_header_file))
+        cutlass_autotune_code, _, _ = get_cuda_code(
+            str(cutlass_autotune_cu), str(header_file), str(utils_header_file)
+        )
     else:
         cutlass_autotune_code = ""
 
     # Conditionally load Hopper kernels based on GPU compute capability
     if has_hopper:
-        cutlass_hopper_code, _, _ = get_cuda_code(str(cutlass_hopper_cu), str(header_file), str(utils_header_file))
+        cutlass_hopper_code, _, _ = get_cuda_code(
+            str(cutlass_hopper_cu), str(header_file), str(utils_header_file)
+        )
         if load_autotune_kernels:
-            cutlass_hopper_autotune_code, header_code, utils_code = get_cuda_code(str(cutlass_hopper_autotune_cu), str(header_file), str(utils_header_file))
+            cutlass_hopper_autotune_code, header_code, utils_code = get_cuda_code(
+                str(cutlass_hopper_autotune_cu),
+                str(header_file),
+                str(utils_header_file),
+            )
         else:
             cutlass_hopper_autotune_code = ""
-            _, header_code, utils_code = get_cuda_code(str(cutlass_hopper_cu), str(header_file), str(utils_header_file))
+            _, header_code, utils_code = get_cuda_code(
+                str(cutlass_hopper_cu), str(header_file), str(utils_header_file)
+            )
     else:
         cutlass_hopper_code = ""
         cutlass_hopper_autotune_code = ""
         # Still need to read header and utils from one of the other files
-        _, header_code, utils_code = get_cuda_code(str(cutlass_cu), str(header_file), str(utils_header_file))
+        _, header_code, utils_code = get_cuda_code(
+            str(cutlass_cu), str(header_file), str(utils_header_file)
+        )
 
     # Combine CUDA sources
     # Add preprocessor directives to enable half-precision and WMMA for Tensor Cores
@@ -359,7 +413,9 @@ namespace cg = cooperative_groups;
 
     # Determine CUTLASS include paths from third-party directory
     cutlass_include_path = file_dir.parent / "third-party" / "cutlass" / "include"
-    cutlass_utils_include_path = file_dir.parent / "third-party" / "cutlass" / "tools" / "util" / "include"
+    cutlass_utils_include_path = (
+        file_dir.parent / "third-party" / "cutlass" / "tools" / "util" / "include"
+    )
 
     if cutlass_include_path.exists():
         if verbose:
@@ -372,7 +428,9 @@ namespace cg = cooperative_groups;
 
     if cutlass_utils_include_path.exists():
         if verbose:
-            logger.info(f"📦 Found CUTLASS utils headers at: {cutlass_utils_include_path}")
+            logger.info(
+                f"📦 Found CUTLASS utils headers at: {cutlass_utils_include_path}"
+            )
     else:
         if verbose:
             logger.warning(
@@ -419,25 +477,31 @@ namespace cg = cooperative_groups;
 
     # Add autotunable CUTLASS functions if requested
     if load_autotune_kernels:
-        functions_list.extend([
-            "sgemm_cutlass_autotune_fp16",
-            "sgemm_cutlass_autotune_bf16",
-            "get_num_cutlass_configs",
-        ])
+        functions_list.extend(
+            [
+                "sgemm_cutlass_autotune_fp16",
+                "sgemm_cutlass_autotune_bf16",
+                "get_num_cutlass_configs",
+            ]
+        )
 
     # Add Hopper functions only if SM90+ is available
     if has_hopper:
-        functions_list.extend([
-            "sgemm_cutlass_hopper_fp16",
-            "sgemm_cutlass_hopper_bf16",
-        ])
+        functions_list.extend(
+            [
+                "sgemm_cutlass_hopper_fp16",
+                "sgemm_cutlass_hopper_bf16",
+            ]
+        )
         # Add autotunable Hopper functions if requested
         if load_autotune_kernels:
-            functions_list.extend([
-                "sgemm_cutlass_hopper_autotune_fp16",
-                "sgemm_cutlass_hopper_autotune_bf16",
-                "get_num_cutlass_hopper_configs",
-            ])
+            functions_list.extend(
+                [
+                    "sgemm_cutlass_hopper_autotune_fp16",
+                    "sgemm_cutlass_hopper_autotune_bf16",
+                    "get_num_cutlass_hopper_configs",
+                ]
+            )
 
     extension = load_inline(
         name="gemm_cuda_extension",
