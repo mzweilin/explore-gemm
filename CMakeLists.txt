@@ -79,6 +79,37 @@ message(STATUS "CUDA flags: ${CMAKE_CUDA_FLAGS}")
 list(APPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/third-party/libtorch)
 list(APPEND CMAKE_PREFIX_PATH /usr/local/cuda-12.8)
 
+# PyTorch uses TORCH_CUDA_ARCH_LIST instead of CMAKE_CUDA_ARCHITECTURES
+# Set it before find_package(Torch) to avoid incorrect gencode flags
+if(NOT DEFINED TORCH_CUDA_ARCH_LIST)
+    # Convert CMAKE_CUDA_ARCHITECTURES format to PyTorch format
+    # CMAKE: "100" -> PyTorch: "10.0"
+    # CMAKE: "89" -> PyTorch: "8.9"
+    # CMAKE: "90a" -> PyTorch: "9.0a"
+    set(ARCH_STRING "${CMAKE_CUDA_ARCHITECTURES}")
+
+    if(ARCH_STRING MATCHES "90a")
+        set(TORCH_CUDA_ARCH_LIST "9.0")
+    elseif(ARCH_STRING STREQUAL "100")
+        set(TORCH_CUDA_ARCH_LIST "10.0")
+    else()
+        # Convert from "89" to "8.9" format
+        string(LENGTH "${ARCH_STRING}" ARCH_LEN)
+        if(ARCH_LEN EQUAL 2)
+            string(SUBSTRING "${ARCH_STRING}" 0 1 MAJOR)
+            string(SUBSTRING "${ARCH_STRING}" 1 1 MINOR)
+            set(TORCH_CUDA_ARCH_LIST "${MAJOR}.${MINOR}")
+        elseif(ARCH_LEN EQUAL 3)
+            string(SUBSTRING "${ARCH_STRING}" 0 2 MAJOR)
+            string(SUBSTRING "${ARCH_STRING}" 2 1 MINOR)
+            set(TORCH_CUDA_ARCH_LIST "${MAJOR}.${MINOR}")
+        else()
+            set(TORCH_CUDA_ARCH_LIST "${ARCH_STRING}")
+        endif()
+    endif()
+    message(STATUS "Setting TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST}")
+endif()
+
 find_package(Torch REQUIRED)
 find_package(CUDA REQUIRED)
 
