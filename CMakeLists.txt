@@ -91,7 +91,10 @@ if(NOT DEFINED TORCH_CUDA_ARCH_LIST)
     if(ARCH_STRING MATCHES "90a")
         set(TORCH_CUDA_ARCH_LIST "9.0")
     elseif(ARCH_STRING STREQUAL "100")
-        set(TORCH_CUDA_ARCH_LIST "10.0")
+        # For Blackwell GB10 (compute capability 12.1 -> SM100)
+        # PyTorch uses "12.1" format for TORCH_CUDA_ARCH_LIST
+        set(TORCH_CUDA_ARCH_LIST "12.1")
+        message(STATUS "Blackwell detected: Using TORCH_CUDA_ARCH_LIST=12.1")
     else()
         # Convert from "89" to "8.9" format
         string(LENGTH "${ARCH_STRING}" ARCH_LEN)
