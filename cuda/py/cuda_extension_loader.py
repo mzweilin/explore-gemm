@@ -89,17 +89,23 @@ def find_cuda_home():
         if cuda_home.exists():
             # Ensure CUDA_HOME is explicitly set in the environment if already found and valid
             os.environ["CUDA_HOME"] = str(cuda_home)
-            logger.info(f"🔧 Using CUDA_HOME from environment: {cuda_home}")
             return str(cuda_home)
 
+    # Second, check the default symlink path `/usr/local/cuda`
+    default_cuda_path = Path("/usr/local/cuda")
+    if (default_cuda_path / "bin" / "nvcc").exists():
+        cuda_home = str(default_cuda_path)
+        os.environ["CUDA_HOME"] = cuda_home
+        return cuda_home
+
     # List of common CUDA installation paths
+    # (omitting /usr/local/cuda as it's now checked first)
     cuda_paths = [
         "/usr/local/cuda-13.0",
         "/usr/local/cuda-12.8",
         "/usr/local/cuda-12.6",
         "/usr/local/cuda-12.4",
         "/usr/local/cuda-12.1",
-        "/usr/local/cuda",
     ]
 
     # Try each path
@@ -110,7 +116,6 @@ def find_cuda_home():
             cuda_home = str(cuda_path)
             # Set CUDA_HOME environment variable for torch extension loader
             os.environ["CUDA_HOME"] = cuda_home
-            logger.info(f"🔧 Found CUDA at standard path: {cuda_home}")
             return cuda_home
 
     # Try to find nvcc in PATH
@@ -120,7 +125,6 @@ def find_cuda_home():
             # nvcc is at /path/to/cuda/bin/nvcc, get /path/to/cuda
             cuda_home = str(Path(nvcc_output).parent.parent)
             os.environ["CUDA_HOME"] = cuda_home
-            logger.info(f"🔧 Found CUDA via `which nvcc`: {cuda_home}")
             return cuda_home
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
@@ -143,17 +147,17 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
         The loaded CUDA extension module
     """
     # Find and set CUDA_HOME before building extensions
+    # The find_cuda_home function will set the environment variable.
     cuda_home = find_cuda_home()
-    if not cuda_home and verbose:
+    if cuda_home and verbose:
+        logger.info(f"🔧 Using CUDA installation at: {cuda_home}")
+    elif not cuda_home and verbose:
         logger.warning("⚠️  Could not find CUDA installation. Extension build may fail.")
 
     # Also set CUDACXX to ensure nvcc is found
     if cuda_home:
         nvcc_path = os.path.join(cuda_home, "bin", "nvcc")
-        if os.path.exists(nvcc_path):
-            os.environ["CUDACXX"] = nvcc_path
-            if verbose:
-                logger.info(f"🔧 Set CUDACXX to: {nvcc_path}")
+        os.environ["CUDACXX"] = nvcc_path
 
     file_dir = Path(__file__).parent.parent
 
