@@ -231,10 +231,14 @@ if(NOT DEFINED BUILD_HOPPER_KERNELS)
     endif()
 
     # Determine if we should build Hopper kernels
+    # Note: Only Hopper (SM90-SM99) supports Hopper-specific features (TMA, GMMA)
+    # Blackwell (SM121+) is a different architecture and doesn't support Hopper instructions
     set(BUILD_HOPPER_KERNELS OFF)
-    if(GPU_COMPUTE_CAPABILITY GREATER_EQUAL 90)
+    if(GPU_COMPUTE_CAPABILITY GREATER_EQUAL 90 AND GPU_COMPUTE_CAPABILITY LESS 100)
         set(BUILD_HOPPER_KERNELS ON)
-        message(STATUS "GPU supports Hopper (SM90+): Hopper kernels will be built")
+        message(STATUS "GPU supports Hopper (SM90-SM99): Hopper kernels will be built")
+    elseif(GPU_COMPUTE_CAPABILITY GREATER_EQUAL 121)
+        message(STATUS "GPU is Blackwell (SM${GPU_COMPUTE_CAPABILITY}): Skipping Hopper kernels (Hopper-specific features not available)")
     else()
         message(STATUS "GPU compute capability SM${GPU_COMPUTE_CAPABILITY} < SM90: Skipping Hopper kernels")
     endif()
