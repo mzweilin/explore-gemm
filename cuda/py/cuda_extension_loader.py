@@ -149,9 +149,9 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
     # Find and set CUDA_HOME before building extensions
     # The find_cuda_home function will set the environment variable.
     cuda_home = find_cuda_home()
-    if cuda_home and verbose:
+    if cuda_home:
         logger.info(f"🔧 Using CUDA installation at: {cuda_home}")
-    elif not cuda_home and verbose:
+    else:
         logger.warning("⚠️  Could not find CUDA installation. Extension build may fail.")
 
     # Also set CUDACXX to ensure nvcc is found
