@@ -51,8 +51,13 @@ struct CutlassHopperGemmAutotuneConfig
     using ClusterShape = Shape<Int<ClusterM>, Int<ClusterN>, Int<ClusterK>>;
 
     // Warp specialization schedules
-    using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
-    using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+    using KernelSchedule = typename std::conditional<
+        (TileM < 128),
+        cutlass::gemm::KernelTmaWarpSpecialized,
+        cutlass::gemm::KernelTmaWarpSpecializedCooperative
+    >::type;
+    using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
+    using TypeSchedulerType = void;
 
     // Select stage count policy based on template parameter
     using StageCountType = typename std::conditional<
@@ -92,7 +97,8 @@ struct CutlassHopperGemmAutotuneConfig
     using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
         Shape<int, int, int>,
         CollectiveMainloop,
-        CollectiveEpilogue
+        CollectiveEpilogue,
+        TypeSchedulerType
     >;
 
     using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
@@ -208,9 +214,9 @@ constexpr HopperBaseConfig kHopperBaseConfigs[] = {
 
 constexpr int NUM_BASE_CONFIGS = sizeof(kHopperBaseConfigs) / sizeof(HopperBaseConfig);
 
-// Stage count variants for each base config: Auto, 3, 4, 5, 6
-constexpr int kStageVariants[] = {STAGE_AUTO, 3, 4, 5, 6};
-constexpr int NUM_STAGE_VARIANTS = sizeof(kStageVariants) / sizeof(int);
+// Stage count variants for each base config: Auto, 3, 4, 5
+constexpr int kStageVariants[] = {STAGE_AUTO, 3, 4, 5};
+constexpr int NUM_STAGE_VARIANTS = std::size(kStageVariants);
 
 // Total number of configurations = base configs × stage variants
 constexpr int NUM_HOPPER_CONFIGS = NUM_BASE_CONFIGS * NUM_STAGE_VARIANTS;
@@ -270,26 +276,26 @@ cudaError_t dispatch_cutlass_hopper_autotune(
 #define CASE_CONFIG(I) \
     case I:            \
         return launch(std::integral_constant<int, I>{});
-        // 9 base configs × 5 stage variants = 45 total configurations
-        // Config ID = base_idx * 5 + stage_idx
-        // Base 0 (128x128x64_C2x1x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(0) CASE_CONFIG(1) CASE_CONFIG(2) CASE_CONFIG(3) CASE_CONFIG(4)
-        // Base 1 (128x256x64_C2x1x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(5) CASE_CONFIG(6) CASE_CONFIG(7) CASE_CONFIG(8) CASE_CONFIG(9)
-        // Base 2 (256x128x64_C1x2x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(10) CASE_CONFIG(11) CASE_CONFIG(12) CASE_CONFIG(13) CASE_CONFIG(14)
-        // Base 3 (128x128x128_C2x1x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(15) CASE_CONFIG(16) CASE_CONFIG(17) CASE_CONFIG(18) CASE_CONFIG(19)
-        // Base 4 (256x256x64_C2x2x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(20) CASE_CONFIG(21) CASE_CONFIG(22) CASE_CONFIG(23) CASE_CONFIG(24)
-        // Base 5 (128x64x64_C2x1x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(25) CASE_CONFIG(26) CASE_CONFIG(27) CASE_CONFIG(28) CASE_CONFIG(29)
-        // Base 6 (64x128x64_C1x2x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(30) CASE_CONFIG(31) CASE_CONFIG(32) CASE_CONFIG(33) CASE_CONFIG(34)
-        // Base 7 (64x64x128_C1x1x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(35) CASE_CONFIG(36) CASE_CONFIG(37) CASE_CONFIG(38) CASE_CONFIG(39)
-        // Base 8 (128x128x64_C1x1x1): Auto, S3, S4, S5, S6
-        CASE_CONFIG(40) CASE_CONFIG(41) CASE_CONFIG(42) CASE_CONFIG(43) CASE_CONFIG(44)
+        // 9 base configs × 4 stage variants = 36 total configurations
+        // Config ID = base_idx * 4 + stage_idx
+        // Base 0 (128x128x64_C2x1x1): Auto, S3, S4, S5
+        CASE_CONFIG(0) CASE_CONFIG(1) CASE_CONFIG(2) CASE_CONFIG(3)
+        // Base 1 (128x256x64_C2x1x1): Auto, S3, S4, S5
+        CASE_CONFIG(4) CASE_CONFIG(5) CASE_CONFIG(6) CASE_CONFIG(7)
+        // Base 2 (256x128x64_C1x2x1): Auto, S3, S4, S5
+        CASE_CONFIG(8) CASE_CONFIG(9) CASE_CONFIG(10) CASE_CONFIG(11)
+        // Base 3 (128x128x128_C2x1x1): Auto, S3, S4, S5
+        CASE_CONFIG(12) CASE_CONFIG(13) CASE_CONFIG(14) CASE_CONFIG(15)
+        // Base 4 (256x256x64_C2x2x1): Auto, S3, S4, S5
+        CASE_CONFIG(16) CASE_CONFIG(17) CASE_CONFIG(18) CASE_CONFIG(19)
+        // Base 5 (128x64x64_C2x1x1): Auto, S3, S4, S5
+        CASE_CONFIG(20) CASE_CONFIG(21) CASE_CONFIG(22) CASE_CONFIG(23)
+        // Base 6 (64x128x64_C1x2x1): Auto, S3, S4, S5
+        CASE_CONFIG(24) CASE_CONFIG(25) CASE_CONFIG(26) CASE_CONFIG(27)
+        // Base 7 (64x64x128_C1x1x1): Auto, S3, S4, S5
+        CASE_CONFIG(28) CASE_CONFIG(29) CASE_CONFIG(30) CASE_CONFIG(31)
+        // Base 8 (128x128x64_C1x1x1): Auto, S3, S4, S5
+        CASE_CONFIG(32) CASE_CONFIG(33) CASE_CONFIG(34) CASE_CONFIG(35)
     default:
         return cudaErrorInvalidValue;
 #undef CASE_CONFIG

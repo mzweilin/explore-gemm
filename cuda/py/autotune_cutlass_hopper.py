@@ -92,7 +92,7 @@ HOPPER_BASE_CONFIGS = [
 ]
 
 # Stage count variants: Auto, 3, 4, 5, 6
-STAGE_VARIANTS = ["Auto", "S3", "S4", "S5", "S6"]
+STAGE_VARIANTS = ["Auto", "S3", "S4", "S5"]
 
 # Generate all 45 configurations (9 base configs × 5 stage variants)
 HOPPER_CONFIG_METADATA = []
