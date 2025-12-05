@@ -26,11 +26,11 @@ from datetime import datetime
 import click
 
 # Set CUDA paths BEFORE importing torch
-os.environ["CUDA_HOME"] = "/usr/local/cuda-12.8"
-os.environ["CUDA_PATH"] = "/usr/local/cuda-12.8"
-os.environ["PATH"] = f"/usr/local/cuda-12.8/bin:{os.environ.get('PATH', '')}"
+os.environ["CUDA_HOME"] = "/usr/local/cuda"
+os.environ["CUDA_PATH"] = "/usr/local/cuda"
+os.environ["PATH"] = f"/usr/local/cuda/bin:{os.environ.get('PATH', '')}"
 os.environ["LD_LIBRARY_PATH"] = (
-    f"/usr/local/cuda-12.8/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
+    f"/usr/local/cuda/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
 )
 
 import torch
