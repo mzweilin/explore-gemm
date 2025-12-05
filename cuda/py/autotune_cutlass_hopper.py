@@ -27,11 +27,11 @@ from datetime import datetime
 import click
 
 # Set CUDA paths BEFORE importing torch
-os.environ["CUDA_HOME"] = "/usr/local/cuda-12.8"
-os.environ["CUDA_PATH"] = "/usr/local/cuda-12.8"
-os.environ["PATH"] = f"/usr/local/cuda-12.8/bin:{os.environ.get('PATH', '')}"
+os.environ["CUDA_HOME"] = "/usr/local/cuda"
+os.environ["CUDA_PATH"] = "/usr/local/cuda"
+os.environ["PATH"] = f"/usr/local/cuda/bin:{os.environ.get('PATH', '')}"
 os.environ["LD_LIBRARY_PATH"] = (
-    f"/usr/local/cuda-12.8/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
+    f"/usr/local/cuda/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
 )
 
 import torch
@@ -99,15 +99,17 @@ HOPPER_CONFIG_METADATA = []
 config_id = 0
 for base_idx, base_config in enumerate(HOPPER_BASE_CONFIGS):
     for stage_idx, stage_name in enumerate(STAGE_VARIANTS):
-        HOPPER_CONFIG_METADATA.append({
-            "id": config_id,
-            "name": f"{base_config['name']}_{stage_name}",
-            "tile": base_config["tile"],
-            "cluster": base_config["cluster"],
-            "stages": stage_name,
-            "base_idx": base_idx,
-            "stage_idx": stage_idx,
-        })
+        HOPPER_CONFIG_METADATA.append(
+            {
+                "id": config_id,
+                "name": f"{base_config['name']}_{stage_name}",
+                "tile": base_config["tile"],
+                "cluster": base_config["cluster"],
+                "stages": stage_name,
+                "base_idx": base_idx,
+                "stage_idx": stage_idx,
+            }
+        )
         config_id += 1
 
 
@@ -679,7 +681,9 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
             # Include tile and cluster in the label
             meta = HOPPER_CONFIG_METADATA[config_id]
             tile_str = f"{meta['tile'][0]}x{meta['tile'][1]}x{meta['tile'][2]}"
-            cluster_str = f"{meta['cluster'][0]}x{meta['cluster'][1]}x{meta['cluster'][2]}"
+            cluster_str = (
+                f"{meta['cluster'][0]}x{meta['cluster'][1]}x{meta['cluster'][2]}"
+            )
             filtered_labels.append(f"{config_id}: T{tile_str}_C{cluster_str}")
 
     # Create custom text with bold formatting for best configs
@@ -931,12 +935,18 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, adaptive_iters, target_t
     logger.info("")
 
     # Check if Hopper kernels are available
-    if not hasattr(cuda_kernels, 'get_num_cutlass_hopper_configs'):
+    if not hasattr(cuda_kernels, "get_num_cutlass_hopper_configs"):
         logger.error("❌ Hopper kernels are not available on this GPU!")
-        logger.error("   This script requires a GPU with compute capability SM90+ (H100, H200, etc.)")
+        logger.error(
+            "   This script requires a GPU with compute capability SM90+ (H100, H200, etc.)"
+        )
         logger.error(f"   Your GPU: {torch.cuda.get_device_name(0)}")
-        logger.error("   Hopper-specific features (TMA, warp specialization) are not supported.")
-        logger.error("\n💡 Tip: Use autotune_cutlass.py for non-Hopper GPUs (Ampere, Ada, etc.)")
+        logger.error(
+            "   Hopper-specific features (TMA, warp specialization) are not supported."
+        )
+        logger.error(
+            "\n💡 Tip: Use autotune_cutlass.py for non-Hopper GPUs (Ampere, Ada, etc.)"
+        )
         return
 
     # Get number of configs
