@@ -17,11 +17,11 @@ import os
 
 # Set CUDA paths to match CMakeLists.txt configuration
 # Must be set BEFORE importing torch
-os.environ["CUDA_HOME"] = "/usr/local/cuda-12.8"
-os.environ["CUDA_PATH"] = "/usr/local/cuda-12.8"
-os.environ["PATH"] = f"/usr/local/cuda-12.8/bin:{os.environ.get('PATH', '')}"
+os.environ["CUDA_HOME"] = "/usr/local/cuda"
+os.environ["CUDA_PATH"] = "/usr/local/cuda"
+os.environ["PATH"] = f"/usr/local/cuda/bin:{os.environ.get('PATH', '')}"
 os.environ["LD_LIBRARY_PATH"] = (
-    f"/usr/local/cuda-12.8/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
+    f"/usr/local/cuda/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
 )
 
 import pytest
@@ -33,10 +33,18 @@ try:
 except ImportError:
     # Fallback logger if loguru is not installed
     class SimpleLogger:
-        def info(self, msg): print(f"INFO: {msg}")
-        def success(self, msg): print(f"SUCCESS: {msg}")
-        def warning(self, msg): print(f"WARNING: {msg}")
-        def error(self, msg): print(f"ERROR: {msg}")
+        def info(self, msg):
+            print(f"INFO: {msg}")
+
+        def success(self, msg):
+            print(f"SUCCESS: {msg}")
+
+        def warning(self, msg):
+            print(f"WARNING: {msg}")
+
+        def error(self, msg):
+            print(f"ERROR: {msg}")
+
     logger = SimpleLogger()
 
 # Import the shared CUDA extension loader
@@ -191,7 +199,9 @@ def test_fp32_kernels(cuda_kernels, fp32_kernel_name, matrix_size):
         run_kernel(fp32_kernel_name, cuda_kernels, a, b, c)
     except RuntimeError as e:
         if "must be multiple of" in str(e) or "must be power of 2" in str(e):
-            pytest.skip(f"Kernel {fp32_kernel_name} requires specific dimensions: {str(e)}")
+            pytest.skip(
+                f"Kernel {fp32_kernel_name} requires specific dimensions: {str(e)}"
+            )
         else:
             raise
 
@@ -250,7 +260,9 @@ def test_fp16_kernels(cuda_kernels, fp16_kernel_name, matrix_size):
         result = result_fp32.to(torch.float16)
     except RuntimeError as e:
         if "must be multiple of" in str(e) or "must be power of 2" in str(e):
-            pytest.skip(f"Kernel {fp16_kernel_name} requires specific dimensions: {str(e)}")
+            pytest.skip(
+                f"Kernel {fp16_kernel_name} requires specific dimensions: {str(e)}"
+            )
         else:
             raise
 
@@ -309,7 +321,9 @@ def test_bf16_kernels(cuda_kernels, bf16_kernel_name, matrix_size):
         result = result_fp32.to(torch.bfloat16)
     except RuntimeError as e:
         if "must be multiple of" in str(e) or "must be power of 2" in str(e):
-            pytest.skip(f"Kernel {bf16_kernel_name} requires specific dimensions: {str(e)}")
+            pytest.skip(
+                f"Kernel {bf16_kernel_name} requires specific dimensions: {str(e)}"
+            )
         else:
             raise
 
@@ -347,7 +361,7 @@ def test_non_square_matrices_fp32(cuda_kernels):
     """Test FP32 kernels with non-square matrices."""
     # Test various non-square shapes
     test_shapes = [
-        (64, 128, 96),   # M, K, N
+        (64, 128, 96),  # M, K, N
         (128, 64, 256),
         (256, 512, 128),
     ]

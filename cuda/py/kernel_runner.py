@@ -44,11 +44,11 @@ import click
 
 # Set CUDA paths to match CMakeLists.txt configuration
 # Must be set BEFORE importing torch
-os.environ["CUDA_HOME"] = "/usr/local/cuda-12.8"
-os.environ["CUDA_PATH"] = "/usr/local/cuda-12.8"
-os.environ["PATH"] = f"/usr/local/cuda-12.8/bin:{os.environ.get('PATH', '')}"
+os.environ["CUDA_HOME"] = "/usr/local/cuda"
+os.environ["CUDA_PATH"] = "/usr/local/cuda"
+os.environ["PATH"] = f"/usr/local/cuda/bin:{os.environ.get('PATH', '')}"
 os.environ["LD_LIBRARY_PATH"] = (
-    f"/usr/local/cuda-12.8/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
+    f"/usr/local/cuda/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
 )
 
 import torch
@@ -68,7 +68,9 @@ cuda_kernels = create_cuda_extension(verbose=False)
 logger.success("✅ CUDA kernels loaded successfully!")
 
 
-def run_pytorch_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_pytorch_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run PyTorch baseline implementation."""
     return torch.matmul(a, b, out=c)
 
@@ -79,37 +81,49 @@ def run_naive_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch
     return c
 
 
-def run_coalesced_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_coalesced_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run coalesced global memory CUDA GEMM kernel."""
     cuda_kernels.sgemm_global_mem_coalesce(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_shared_mem_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_shared_mem_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run shared memory CUDA GEMM kernel."""
     cuda_kernels.sgemm_shared_mem(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_blocktiling_1d_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_blocktiling_1d_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run 1D block tiling CUDA GEMM kernel."""
     cuda_kernels.sgemm_blocktiling_1d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_blocktiling_2d_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_blocktiling_2d_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run 2D block tiling CUDA GEMM kernel."""
     cuda_kernels.sgemm_blocktiling_2d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_vectorize_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_vectorize_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run vectorized CUDA GEMM kernel."""
     cuda_kernels.sgemm_vectorize(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_warptiling_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run warptiling CUDA GEMM kernel (dtype-aware)."""
     # Dispatch to appropriate warptiling kernel based on input dtype
     if a.dtype == torch.float32:
@@ -124,79 +138,105 @@ def run_warptiling_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> 
     return c
 
 
-def run_tensorcore_naive_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_naive_fp16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run naive Tensor Core CUDA GEMM kernel with FP16 inputs."""
     cuda_kernels.sgemm_tensorcore_naive_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_naive_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_naive_bf16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run naive Tensor Core CUDA GEMM kernel with BF16 inputs."""
     cuda_kernels.sgemm_tensorcore_naive_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_fp16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run optimized Tensor Core CUDA GEMM kernel with FP16 inputs."""
     cuda_kernels.sgemm_tensorcore_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_bf16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run optimized Tensor Core CUDA GEMM kernel with BF16 inputs."""
     cuda_kernels.sgemm_tensorcore_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_db_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_db_fp16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run Tensor Core CUDA GEMM kernel with FP16 inputs and double buffering."""
     cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_db_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_db_bf16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run Tensor Core CUDA GEMM kernel with BF16 inputs and double buffering."""
     cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_async_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_async_fp16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run Tensor Core CUDA GEMM kernel with FP16 inputs and async pipeline."""
     cuda_kernels.sgemm_tensorcore_async_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_tensorcore_async_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_tensorcore_async_bf16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run Tensor Core CUDA GEMM kernel with BF16 inputs and async pipeline."""
     cuda_kernels.sgemm_tensorcore_async_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_cutlass_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_cutlass_fp16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run CUTLASS GEMM kernel with FP16 inputs."""
     cuda_kernels.sgemm_cutlass_fp16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_cutlass_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_cutlass_bf16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run CUTLASS GEMM kernel with BF16 inputs."""
     cuda_kernels.sgemm_cutlass_bf16(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_cutlass_fp32_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_cutlass_fp32_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run CUTLASS GEMM kernel with FP32 inputs."""
     cuda_kernels.sgemm_cutlass_fp32(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def run_cutlass_hopper_fp16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_cutlass_hopper_fp16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run CUTLASS Hopper GEMM kernel with FP16 inputs (SM90+)."""
     cuda_kernels.sgemm_cutlass_hopper_fp16(a, b, c)  # type: ignore
     return c
 
 
-def run_cutlass_hopper_bf16_kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+def run_cutlass_hopper_bf16_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
     """Run CUTLASS Hopper GEMM kernel with BF16 inputs (SM90+)."""
     cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c)  # type: ignore
     return c
@@ -368,11 +408,19 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     logger.info(f"{'='*60}\n")
 
     # Validate dtype compatibility with kernel
-    fp32_only_kernels = ["naive", "global_mem_coalesce", "shared_mem",
-                         "blocktiling_1d", "blocktiling_2d", "vectorize"]
+    fp32_only_kernels = [
+        "naive",
+        "global_mem_coalesce",
+        "shared_mem",
+        "blocktiling_1d",
+        "blocktiling_2d",
+        "vectorize",
+    ]
 
     if kernel in fp32_only_kernels and dtype != "float32":
-        logger.error(f"❌ Kernel '{kernel}' only supports float32, but {dtype} was specified")
+        logger.error(
+            f"❌ Kernel '{kernel}' only supports float32, but {dtype} was specified"
+        )
         logger.error(f"   Please use --dtype=float32 or choose a different kernel")
         return
 
@@ -387,12 +435,21 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     # - FP32-only kernels: output FP32
     if kernel in ["pytorch", "warptiling"]:
         output_dtype = torch_dtype
-    elif kernel in ["tensorcore_naive_fp16", "tensorcore_naive_bf16",
-                    "tensorcore_fp16", "tensorcore_bf16",
-                    "tensorcore_db_fp16", "tensorcore_db_bf16",
-                    "tensorcore_async_fp16", "tensorcore_async_bf16",
-                    "cutlass_fp16", "cutlass_bf16", "cutlass_fp32",
-                    "cutlass_hopper_fp16", "cutlass_hopper_bf16"]:
+    elif kernel in [
+        "tensorcore_naive_fp16",
+        "tensorcore_naive_bf16",
+        "tensorcore_fp16",
+        "tensorcore_bf16",
+        "tensorcore_db_fp16",
+        "tensorcore_db_bf16",
+        "tensorcore_async_fp16",
+        "tensorcore_async_bf16",
+        "cutlass_fp16",
+        "cutlass_bf16",
+        "cutlass_fp32",
+        "cutlass_hopper_fp16",
+        "cutlass_hopper_bf16",
+    ]:
         output_dtype = torch.float32
     else:
         # FP32-only kernels

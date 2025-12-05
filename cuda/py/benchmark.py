@@ -56,11 +56,11 @@ import webbrowser
 
 # Set CUDA paths to match CMakeLists.txt configuration
 # Must be set BEFORE importing torch
-os.environ["CUDA_HOME"] = "/usr/local/cuda-12.8"
-os.environ["CUDA_PATH"] = "/usr/local/cuda-12.8"
-os.environ["PATH"] = f"/usr/local/cuda-12.8/bin:{os.environ.get('PATH', '')}"
+os.environ["CUDA_HOME"] = "/usr/local/cuda"
+os.environ["CUDA_PATH"] = "/usr/local/cuda"
+os.environ["PATH"] = f"/usr/local/cuda/bin:{os.environ.get('PATH', '')}"
 os.environ["LD_LIBRARY_PATH"] = (
-    f"/usr/local/cuda-12.8/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
+    f"/usr/local/cuda/lib64:{os.environ.get('LD_LIBRARY_PATH', '')}"
 )
 
 import torch
@@ -1316,11 +1316,25 @@ def main(kernels, dtype):
         # Add Tensor Core and CUTLASS kernels for FP16/BF16
         if dtype == "float16":
             kernels_to_run.extend(
-                ["tensorcore_naive_fp16", "tensorcore_fp16", "tensorcore_db_fp16", "tensorcore_async_fp16", "cutlass_fp16", "cutlass_hopper_fp16"]
+                [
+                    "tensorcore_naive_fp16",
+                    "tensorcore_fp16",
+                    "tensorcore_db_fp16",
+                    "tensorcore_async_fp16",
+                    "cutlass_fp16",
+                    "cutlass_hopper_fp16",
+                ]
             )
         elif dtype == "bfloat16":
             kernels_to_run.extend(
-                ["tensorcore_naive_bf16", "tensorcore_bf16", "tensorcore_db_bf16", "tensorcore_async_bf16", "cutlass_bf16", "cutlass_hopper_bf16"]
+                [
+                    "tensorcore_naive_bf16",
+                    "tensorcore_bf16",
+                    "tensorcore_db_bf16",
+                    "tensorcore_async_bf16",
+                    "cutlass_bf16",
+                    "cutlass_hopper_bf16",
+                ]
             )
     else:
         kernels_to_run = list(kernels)
