@@ -134,6 +134,14 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
     elif not cuda_home and verbose:
         logger.warning("⚠️  Could not find CUDA installation. Extension build may fail.")
 
+    # Also set CUDACXX to ensure nvcc is found
+    if cuda_home:
+        nvcc_path = os.path.join(cuda_home, 'bin', 'nvcc')
+        if os.path.exists(nvcc_path):
+            os.environ['CUDACXX'] = nvcc_path
+            if verbose:
+                logger.info(f"🔧 Set CUDACXX to: {nvcc_path}")
+
     file_dir = Path(__file__).parent.parent
 
     # Load all CUDA source files
