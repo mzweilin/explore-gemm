@@ -165,11 +165,13 @@ cmake --build build --target test_gemm_cutlass
 Build the project with CMake:
 
 ```bash
-# Configure build (automatically detects GPU and skips Hopper on non-Hopper GPUs)
+# Configure build (automatically detects GPU architecture via nvidia-smi)
 cmake -B build
 
 # Or specify CUDA architecture explicitly
-cmake -B build -DCMAKE_CUDA_ARCHITECTURES=89
+cmake -B build -DCMAKE_CUDA_ARCHITECTURES=89   # Ada (RTX 4090, etc.)
+cmake -B build -DCMAKE_CUDA_ARCHITECTURES=90a  # Hopper (H100, etc.)
+cmake -B build -DCMAKE_CUDA_ARCHITECTURES=100  # Blackwell (GB10, etc.)
 
 # Build all targets
 cmake --build build
@@ -177,6 +179,11 @@ cmake --build build
 # Build specific test executable
 cmake --build build --target test_gemm_tensorcore
 ```
+
+**Auto-Detection Features:**
+- CMake automatically detects your GPU's compute capability using `nvidia-smi`
+- Falls back to SM89 if GPU detection fails
+- Prevents "CMAKE_CUDA_ARCHITECTURES must be non-empty" errors on all systems
 
 ### Hopper Kernel Compilation
 

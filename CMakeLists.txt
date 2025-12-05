@@ -17,6 +17,29 @@ if(NOT DEFINED CMAKE_CUDA_COMPILER)
     endif()
 endif()
 
+# Set default CUDA architectures before project() if not already set
+# This prevents CMake error: "CMAKE_CUDA_ARCHITECTURES must be non-empty if set"
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
+    # Try to detect GPU compute capability early
+    execute_process(
+        COMMAND nvidia-smi --query-gpu=compute_cap --format=csv,noheader
+        OUTPUT_VARIABLE DETECTED_COMPUTE_CAP
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    if(DETECTED_COMPUTE_CAP)
+        # Remove dot: "8.9" -> "89"
+        string(REPLACE "." "" DETECTED_ARCH ${DETECTED_COMPUTE_CAP})
+        set(CMAKE_CUDA_ARCHITECTURES ${DETECTED_ARCH})
+        message(STATUS "Auto-detected CUDA architecture: ${DETECTED_ARCH} (compute capability ${DETECTED_COMPUTE_CAP})")
+    else()
+        # Default to common architecture if detection fails
+        set(CMAKE_CUDA_ARCHITECTURES "89")
+        message(STATUS "Could not detect GPU, using default CUDA architecture: 89")
+    endif()
+endif()
+
 project(explore_gemm CUDA CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -218,8 +241,15 @@ endif()
 # NOTES
 # Build with: cmake -B build
 #
+# Auto-detection:
+#   - CUDA architecture is automatically detected from installed GPU using nvidia-smi
+#   - Falls back to SM89 if detection fails
+#   - Hopper kernels (SM90+) are conditionally compiled based on detected architecture
+#
 # Override CUDA architecture:
 #   cmake -B build -DCMAKE_CUDA_ARCHITECTURES=89
+#   cmake -B build -DCMAKE_CUDA_ARCHITECTURES=90a  # For Hopper
+#   cmake -B build -DCMAKE_CUDA_ARCHITECTURES=100  # For Blackwell (GB10, etc.)
 #
 # Manually enable/disable Hopper kernels:
 #   cmake -B build -DBUILD_HOPPER_KERNELS=ON -DCMAKE_CUDA_ARCHITECTURES=90a
