@@ -124,6 +124,46 @@ add_executable(test_gemm_tensorcore_async
     ${CMAKE_SOURCE_DIR}/cuda/11_kernel_tensorcore_double_buffered.cu)  # Needed for comparison test
 target_link_libraries(test_gemm_tensorcore_async "${TORCH_LIBRARIES}")
 
+# Detect GPU compute capability
+# Allow manual override via -DBUILD_HOPPER_KERNELS=ON
+if(NOT DEFINED BUILD_HOPPER_KERNELS)
+    set(GPU_COMPUTE_CAPABILITY 0)
+
+    # Use nvidia-smi to detect installed GPU
+    if(CMAKE_CUDA_COMPILER)
+        execute_process(
+            COMMAND nvidia-smi --query-gpu=compute_cap --format=csv,noheader
+            OUTPUT_VARIABLE GPU_COMPUTE_CAP_OUTPUT
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(GPU_COMPUTE_CAP_OUTPUT)
+            # Remove the dot to convert "8.9" to "89"
+            string(REPLACE "." "" GPU_COMPUTE_CAPABILITY ${GPU_COMPUTE_CAP_OUTPUT})
+            message(STATUS "Detected GPU compute capability from nvidia-smi: SM${GPU_COMPUTE_CAPABILITY}")
+        else()
+            message(WARNING "Could not detect GPU compute capability. Assuming SM89 (Ada Lovelace).")
+            set(GPU_COMPUTE_CAPABILITY 89)
+        endif()
+    endif()
+
+    # Determine if we should build Hopper kernels
+    set(BUILD_HOPPER_KERNELS OFF)
+    if(GPU_COMPUTE_CAPABILITY GREATER_EQUAL 90)
+        set(BUILD_HOPPER_KERNELS ON)
+        message(STATUS "GPU supports Hopper (SM90+): Hopper kernels will be built")
+    else()
+        message(STATUS "GPU compute capability SM${GPU_COMPUTE_CAPABILITY} < SM90: Skipping Hopper kernels")
+    endif()
+else()
+    # User manually specified BUILD_HOPPER_KERNELS
+    if(BUILD_HOPPER_KERNELS)
+        message(STATUS "BUILD_HOPPER_KERNELS manually enabled by user")
+    else()
+        message(STATUS "BUILD_HOPPER_KERNELS manually disabled by user")
+    endif()
+endif()
+
 # CUTLASS test (only build if CUTLASS is available)
 if(CUTLASS_AVAILABLE)
     add_executable(test_gemm_cutlass
@@ -141,13 +181,17 @@ if(CUTLASS_AVAILABLE)
         POSITION_INDEPENDENT_CODE ON)
 
     # CUTLASS Hopper kernel (requires SM90a+ and CUTLASS 3.x)
-    add_executable(test_gemm_cutlass_hopper
-        ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass_hopper.cpp
-        ${CMAKE_SOURCE_DIR}/cuda/15_kernel_cutlass_hopper.cu)
-    target_link_libraries(test_gemm_cutlass_hopper "${TORCH_LIBRARIES}")
-    # Hopper GMMA instructions require sm_90a
-    set_property(TARGET test_gemm_cutlass_hopper PROPERTY CUDA_ARCHITECTURES 90a)
-    message(STATUS "Building CUTLASS Hopper kernel for SMOFF")
+    if(BUILD_HOPPER_KERNELS)
+        message(STATUS "Building CUTLASS Hopper kernel for SM90a")
+        add_executable(test_gemm_cutlass_hopper
+            ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass_hopper.cpp
+            ${CMAKE_SOURCE_DIR}/cuda/15_kernel_cutlass_hopper.cu)
+        target_link_libraries(test_gemm_cutlass_hopper "${TORCH_LIBRARIES}")
+        # Hopper GMMA instructions require sm_90a
+        set_property(TARGET test_gemm_cutlass_hopper PROPERTY CUDA_ARCHITECTURES 90a)
+    else()
+        message(STATUS "Skipping CUTLASS Hopper kernel (requires SM90+)")
+    endif()
 endif()
 
 enable_testing()
@@ -164,11 +208,29 @@ add_test(NAME test_gemm_tensorcore_naive COMMAND test_gemm_tensorcore_naive)
 add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
 add_test(NAME test_gemm_tensorcore_double_buffered COMMAND test_gemm_tensorcore_double_buffered)
 add_test(NAME test_gemm_tensorcore_async COMMAND test_gemm_tensorcore_async)
-add_test(NAME test_gemm_cutlass_hopper COMMAND test_gemm_cutlass_hopper)
+
+# Only add Hopper test if it was built
+if(BUILD_HOPPER_KERNELS)
+    add_test(NAME test_gemm_cutlass_hopper COMMAND test_gemm_cutlass_hopper)
+endif()
 
 
 # NOTES
 # Build with: cmake -B build
-# Or override defaults: cmake -B build -DCMAKE_CUDA_ARCHITECTURES=89 -DCMAKE_CUDA_COMPILER=/path/to/nvcc
+#
+# Override CUDA architecture:
+#   cmake -B build -DCMAKE_CUDA_ARCHITECTURES=89
+#
+# Manually enable/disable Hopper kernels:
+#   cmake -B build -DBUILD_HOPPER_KERNELS=ON -DCMAKE_CUDA_ARCHITECTURES=90a
+#   cmake -B build -DBUILD_HOPPER_KERNELS=OFF
+#
+# Specify CUDA compiler:
+#   cmake -B build -DCMAKE_CUDA_COMPILER=/path/to/nvcc
+#
 # Then: cmake --build build
 # Run tests: ctest --test-dir build
+#
+# Note: Hopper kernels (SM90+) are automatically detected and built only if:
+#   - GPU compute capability >= SM90 (detected via nvidia-smi), OR
+#   - BUILD_HOPPER_KERNELS is manually set to ON

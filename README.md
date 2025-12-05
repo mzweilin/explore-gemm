@@ -4,45 +4,70 @@ CUDA implementations of General Matrix Multiply (GEMM) operations with PyTorch i
 
 ## Setup
 
-To set up the project with libtorch and CUTLASS, run:
+### Prerequisites
+
+1. **Create and activate a Python environment** (recommended):
+
+   ```bash
+   # Using conda (recommended)
+   conda create -n gemm python=3.12
+   conda activate gemm
+
+   # Or using virtualenv
+   python3 -m venv gemm_env
+   source gemm_env/bin/activate
+   ```
+
+   > **Note:** The setup script will warn you if you're using the conda `base` environment or system Python and ask for confirmation before proceeding.
+
+2. **Install PyTorch with CUDA support** in your environment:
+
+   ```bash
+   # Using conda (recommended)
+   conda install pytorch pytorch-cuda=12.8 -c pytorch -c nvidia
+
+   # Or using pip
+   pip install torch --index-url https://download.pytorch.org/whl/cu128
+   ```
+
+### Running Setup
+
+Once PyTorch is installed and your environment is activated, run:
 
 ```bash
 ./setup.sh
 ```
 
-This will download and configure the following:
-- **libtorch** (PyTorch 2.7.1 with CUDA 12.8 by default) in `third-party/libtorch`
-- **CUTLASS** (version 4.3.0 by default) in `third-party/cutlass`
-- **Catch2** test framework in `third-party/catch.hpp`
-- **Python virtual environment** with PyTorch, loguru, pandas, plotly, and pytest in `venv/`
+The setup script will:
+- **Detect your Python environment** (conda/virtualenv/system)
+  - Warns if using conda `base` environment (asks for confirmation)
+  - Warns if using system Python (asks for confirmation)
+- **Detect PyTorch installation** and verify C++ components
+  - Automatically finds PyTorch version and CUDA version
+  - Validates that libtorch C++ libraries are present
+- **Create symlink** at `third-party/libtorch` pointing to your PyTorch installation
+- **Download CUTLASS** (version 4.3.0 by default) in `third-party/cutlass`
+- **Download Catch2** test framework in `third-party/catch.hpp`
+- **Install additional Python packages**: loguru, pandas, plotly, pytest, click, ninja
 
-### Custom Versions
+### Custom CUTLASS Version
 
-You can specify different PyTorch, CUDA, and CUTLASS versions:
+You can specify a different CUTLASS version:
 
 ```bash
-# Use specific versions
-./setup.sh -p 2.5.1 -c 121        # PyTorch 2.5.1 with CUDA 12.1
-./setup.sh --pytorch 2.4.0 --cuda 118  # PyTorch 2.4.0 with CUDA 11.8
-
 # Specify CUTLASS version
 ./setup.sh -t 4.2.0              # CUTLASS 4.2.0
 ./setup.sh --cutlass 4.5.0       # CUTLASS 4.5.0
-
-# Remote setup (installs pip and venv from apt)
-./setup.sh --remote              # For remote servers without pip/venv
-
-# Combine all options
-./setup.sh -p 2.5.1 -c 121 -t 4.2.0 --remote
 
 # See all options
 ./setup.sh --help
 ```
 
-**Notes:**
-- The setup script will automatically install `unzip` if it's not already available on your system
-- Use `--remote` flag on remote servers to automatically install `pip` and `venv` via apt
-- After setup, activate the Python environment with: `source venv/bin/activate`
+**Important Notes:**
+- The setup script uses PyTorch from your current conda/virtualenv environment
+- This ensures version consistency between Python code and C++ code
+- The `third-party/libtorch` directory will be a symlink to your PyTorch installation
+- Make sure CUDA is installed and accessible at `/usr/local/cuda-12.8` (or update paths in CMakeLists.txt)
 
 ## CUDA Kernels
 
@@ -140,7 +165,7 @@ cmake --build build --target test_gemm_cutlass
 Build the project with CMake:
 
 ```bash
-# Configure build (automatically detects CUDA architecture)
+# Configure build (automatically detects GPU and skips Hopper on non-Hopper GPUs)
 cmake -B build
 
 # Or specify CUDA architecture explicitly
@@ -152,6 +177,26 @@ cmake --build build
 # Build specific test executable
 cmake --build build --target test_gemm_tensorcore
 ```
+
+### Hopper Kernel Compilation
+
+Hopper-specific kernels (SM90+) are **automatically detected and conditionally compiled**:
+
+- **Auto-detection**: CMake uses `nvidia-smi` to detect your GPU's compute capability
+- **SM89 or lower** (RTX 4090, A100, etc.): Hopper kernels are **skipped**
+- **SM90 or higher** (H100, H200, etc.): Hopper kernels are **built**
+
+To manually control Hopper kernel compilation:
+
+```bash
+# Force enable Hopper kernels (requires setting SM90a architecture)
+cmake -B build -DBUILD_HOPPER_KERNELS=ON -DCMAKE_CUDA_ARCHITECTURES=90a
+
+# Force disable Hopper kernels
+cmake -B build -DBUILD_HOPPER_KERNELS=OFF
+```
+
+> **Note**: Attempting to run Hopper kernels on non-Hopper GPUs will result in runtime errors. The Python autotuning scripts automatically detect GPU capability and skip Hopper kernels on incompatible hardware.
 
 ## Testing
 

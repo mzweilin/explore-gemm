@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Setup script for explore-gemm project
-# This script downloads and sets up libtorch for CUDA development
+# This script sets up dependencies using PyTorch from the current conda/virtualenv
 
 set -e  # Exit on error
 
@@ -16,47 +16,30 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Default versions
-PYTORCH_VERSION="2.9.1"
-CUDA_VERSION="128"
 CUTLASS_VERSION="4.3.0"
-REMOTE_SETUP=false
 
 # Parse command-line arguments
 usage() {
     echo -e "${BOLD}${CYAN}Usage:${NC} $0 [OPTIONS]"
     echo ""
     echo -e "${BOLD}Options:${NC}"
-    echo -e "  ${GREEN}-p, --pytorch VERSION${NC}    PyTorch version (default: 2.7.1)"
-    echo -e "  ${GREEN}-c, --cuda VERSION${NC}       CUDA version: 118, 121, 124, 128 (default: 128)"
     echo -e "  ${GREEN}-t, --cutlass VERSION${NC}    CUTLASS version (default: 4.3.0)"
-    echo -e "  ${GREEN}-r, --remote${NC}             Remote setup: install pip and venv from apt"
     echo -e "  ${GREEN}-h, --help${NC}              Show this help message"
     echo ""
     echo -e "${BOLD}Examples:${NC}"
-    echo -e "  ${YELLOW}$0${NC}                                    # Use defaults (PyTorch 2.7.1, CUDA 12.8, CUTLASS 4.3.0)"
-    echo -e "  ${YELLOW}$0 -p 2.5.1 -c 121${NC}                   # Use PyTorch 2.5.1 with CUDA 12.1"
-    echo -e "  ${YELLOW}$0 --pytorch 2.4.0 --cuda 118${NC}        # Use PyTorch 2.4.0 with CUDA 11.8"
+    echo -e "  ${YELLOW}$0${NC}                                    # Use defaults (CUTLASS 4.3.0)"
     echo -e "  ${YELLOW}$0 -t 4.2.0${NC}                          # Use CUTLASS 4.2.0"
-    echo -e "  ${YELLOW}$0 --remote${NC}                          # Remote setup with pip/venv installation"
+    echo ""
+    echo -e "${BOLD}${YELLOW}Note:${NC}"
+    echo -e "  This script uses PyTorch from your current conda/virtualenv environment."
+    echo -e "  Make sure you have activated the environment with PyTorch installed before running."
 }
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -p|--pytorch)
-            PYTORCH_VERSION="$2"
-            shift 2
-            ;;
-        -c|--cuda)
-            CUDA_VERSION="$2"
-            shift 2
-            ;;
         -t|--cutlass)
             CUTLASS_VERSION="$2"
             shift 2
-            ;;
-        -r|--remote)
-            REMOTE_SETUP=true
-            shift 1
             ;;
         -h|--help)
             usage
@@ -70,8 +53,184 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Detect PyTorch installation
+echo -e "${BOLD}${MAGENTA}🚀 Setting up explore-gemm environment...${NC}"
+echo ""
+
+# Check if Python is available
+if ! command -v python &> /dev/null && ! command -v python3 &> /dev/null; then
+    echo -e "${RED}❌ Error: Python not found!${NC}"
+    echo -e "${YELLOW}Please activate your conda/virtualenv environment first.${NC}"
+    exit 1
+fi
+
+# Determine Python command
+if command -v python &> /dev/null; then
+    PYTHON_CMD=python
+else
+    PYTHON_CMD=python3
+fi
+
+# Detect environment type and name
+echo -e "${BLUE}🔍 Detecting Python environment...${NC}"
+ENV_TYPE="unknown"
+ENV_NAME="unknown"
+
+# Check for conda environment
+if [ -n "$CONDA_DEFAULT_ENV" ]; then
+    ENV_TYPE="conda"
+    ENV_NAME="$CONDA_DEFAULT_ENV"
+    echo -e "${GREEN}   Environment type: Conda${NC}"
+    echo -e "${GREEN}   Environment name: ${BOLD}${ENV_NAME}${NC}"
+
+    # Warn if using base environment
+    if [ "$ENV_NAME" = "base" ]; then
+        echo -e "${YELLOW}⚠️  Warning: You are using the 'base' conda environment!${NC}"
+        echo -e "${YELLOW}   It's recommended to create a dedicated environment for this project.${NC}"
+        echo ""
+        read -p "$(echo -e ${CYAN}Do you want to continue with base environment? \(y/N\): ${NC})" -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}💡 Create a new environment with:${NC}"
+            echo -e "${CYAN}   conda create -n gemm python=3.12${NC}"
+            echo -e "${CYAN}   conda activate gemm${NC}"
+            echo -e "${CYAN}   conda install pytorch pytorch-cuda=12.8 -c pytorch -c nvidia${NC}"
+            exit 0
+        fi
+    fi
+# Check for virtualenv
+elif [ -n "$VIRTUAL_ENV" ]; then
+    ENV_TYPE="virtualenv"
+    ENV_NAME=$(basename "$VIRTUAL_ENV")
+    echo -e "${GREEN}   Environment type: Virtualenv${NC}"
+    echo -e "${GREEN}   Environment name: ${BOLD}${ENV_NAME}${NC}"
+else
+    echo -e "${YELLOW}⚠️  Warning: No conda or virtualenv detected!${NC}"
+    echo -e "${YELLOW}   Using system Python installation.${NC}"
+    echo ""
+    read -p "$(echo -e ${CYAN}Do you want to continue with system Python? \(y/N\): ${NC})" -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}💡 It's recommended to use conda or virtualenv:${NC}"
+        echo -e "${CYAN}   # Using conda:${NC}"
+        echo -e "${CYAN}   conda create -n gemm python=3.12${NC}"
+        echo -e "${CYAN}   conda activate gemm${NC}"
+        echo -e "${CYAN}   conda install pytorch pytorch-cuda=12.8 -c pytorch -c nvidia${NC}"
+        echo ""
+        echo -e "${CYAN}   # Or using virtualenv:${NC}"
+        echo -e "${CYAN}   python3 -m venv gemm_env${NC}"
+        echo -e "${CYAN}   source gemm_env/bin/activate${NC}"
+        echo -e "${CYAN}   pip install torch --index-url https://download.pytorch.org/whl/cu128${NC}"
+        exit 0
+    fi
+fi
+
+echo ""
+
+# Check if PyTorch is installed
+echo -e "${BLUE}🔍 Checking for PyTorch installation...${NC}"
+if ! $PYTHON_CMD -c "import torch" &> /dev/null; then
+    echo -e "${RED}❌ Error: PyTorch not found in current environment!${NC}"
+    echo ""
+    echo -e "${YELLOW}Please install PyTorch first:${NC}"
+    if [ "$ENV_TYPE" = "conda" ]; then
+        echo -e "${CYAN}   conda install pytorch pytorch-cuda=12.8 -c pytorch -c nvidia${NC}"
+    else
+        echo -e "${CYAN}   pip install torch --index-url https://download.pytorch.org/whl/cu128${NC}"
+    fi
+    exit 1
+fi
+
+# Get PyTorch info from version metadata
+PYTORCH_INFO=$($PYTHON_CMD -c "
+import torch
+import os
+print(f'{torch.__version__}')
+print(f'{os.path.dirname(torch.__file__)}')
+print(f'{torch.version.cuda if torch.version.cuda else \"cpu\"}')
+")
+
+# Parse the output
+PYTORCH_VERSION=$(echo "$PYTORCH_INFO" | sed -n '1p')
+PYTORCH_PATH=$(echo "$PYTORCH_INFO" | sed -n '2p')
+CUDA_VERSION=$(echo "$PYTORCH_INFO" | sed -n '3p')
+
+echo -e "${GREEN}✅ Found PyTorch ${PYTORCH_VERSION}${NC}"
+echo -e "${GREEN}   Location: ${PYTORCH_PATH}${NC}"
+echo -e "${GREEN}   CUDA version: ${CUDA_VERSION}${NC}"
+
+# Verify PyTorch C++ libraries are available
+echo ""
+echo -e "${BLUE}🔍 Verifying PyTorch C++ components...${NC}"
+MISSING_LIBS=()
+
+# Check for essential libtorch components
+if [ ! -d "$PYTORCH_PATH/lib" ]; then
+    MISSING_LIBS+=("lib directory")
+fi
+if [ ! -d "$PYTORCH_PATH/include" ]; then
+    MISSING_LIBS+=("include directory")
+fi
+if [ ! -f "$PYTORCH_PATH/lib/libtorch.so" ] && [ ! -f "$PYTORCH_PATH/lib/libtorch.dylib" ]; then
+    MISSING_LIBS+=("libtorch shared library")
+fi
+if [ ! -d "$PYTORCH_PATH/share/cmake" ]; then
+    MISSING_LIBS+=("CMake configuration files")
+fi
+
+if [ ${#MISSING_LIBS[@]} -gt 0 ]; then
+    echo -e "${RED}❌ Error: PyTorch C++ components not found!${NC}"
+    echo -e "${YELLOW}   Missing components:${NC}"
+    for lib in "${MISSING_LIBS[@]}"; do
+        echo -e "${YELLOW}   - ${lib}${NC}"
+    done
+    echo ""
+    echo -e "${YELLOW}Your PyTorch installation may be incomplete or Python-only.${NC}"
+    echo -e "${YELLOW}For C++ development with PyTorch, you need the full distribution.${NC}"
+    echo ""
+    if [ "$ENV_TYPE" = "conda" ]; then
+        echo -e "${BLUE}💡 Try reinstalling PyTorch with conda (includes C++ libraries):${NC}"
+        echo -e "${CYAN}   conda install pytorch pytorch-cuda=12.8 -c pytorch -c nvidia${NC}"
+    else
+        echo -e "${BLUE}💡 pip wheel packages include C++ libraries by default.${NC}"
+        echo -e "${CYAN}   Verify your installation with:${NC}"
+        echo -e "${CYAN}   pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu128${NC}"
+    fi
+    exit 1
+fi
+
+echo -e "${GREEN}✅ PyTorch C++ components verified${NC}"
+echo -e "${GREEN}   Headers: ${PYTORCH_PATH}/include${NC}"
+echo -e "${GREEN}   Libraries: ${PYTORCH_PATH}/lib${NC}"
+echo -e "${GREEN}   CMake config: ${PYTORCH_PATH}/share/cmake${NC}"
+
+# Create symlink to PyTorch installation for CMake
 LIBTORCH_DIR="third-party/libtorch"
-LIBTORCH_URL="https://download.pytorch.org/libtorch/cu${CUDA_VERSION}/libtorch-shared-with-deps-${PYTORCH_VERSION}%2Bcu${CUDA_VERSION}.zip"
+mkdir -p third-party
+
+if [ -L "$LIBTORCH_DIR" ]; then
+    echo -e "${YELLOW}⚠️  Removing existing libtorch symlink...${NC}"
+    rm "$LIBTORCH_DIR"
+fi
+
+if [ -d "$LIBTORCH_DIR" ] && [ ! -L "$LIBTORCH_DIR" ]; then
+    echo -e "${YELLOW}⚠️  Found existing libtorch directory (not a symlink)${NC}"
+    read -p "$(echo -e ${CYAN}Do you want to remove it and create a symlink? \(y/N\): ${NC})" -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${RED}🗑️  Removing existing libtorch...${NC}"
+        rm -rf "$LIBTORCH_DIR"
+    else
+        echo -e "${YELLOW}⚠️  Skipping libtorch symlink creation.${NC}"
+        LIBTORCH_DIR=""
+    fi
+fi
+
+if [ -n "$LIBTORCH_DIR" ]; then
+    echo -e "${BLUE}🔗 Creating symlink: ${LIBTORCH_DIR} -> ${PYTORCH_PATH}${NC}"
+    ln -sf "$PYTORCH_PATH" "$LIBTORCH_DIR"
+    echo -e "${GREEN}✅ libtorch symlink created${NC}"
+fi
 
 # Catch2 configuration
 CATCH2_DIR="third-party"
@@ -81,9 +240,7 @@ CATCH2_HEADER_URL="https://raw.githubusercontent.com/catchorg/Catch2/v2.13.10/si
 CUTLASS_DIR="third-party/cutlass"
 CUTLASS_URL="https://github.com/NVIDIA/cutlass/archive/refs/tags/v${CUTLASS_VERSION}.zip"
 
-echo -e "${BOLD}${MAGENTA}🚀 Setting up explore-gemm environment...${NC}"
-echo -e "${CYAN}📦 PyTorch version:${NC} ${BOLD}${PYTORCH_VERSION}${NC}"
-echo -e "${CYAN}⚡ CUDA version:${NC} ${BOLD}${CUDA_VERSION}${NC}"
+echo ""
 echo -e "${CYAN}✂️  CUTLASS version:${NC} ${BOLD}${CUTLASS_VERSION}${NC}"
 echo ""
 
@@ -93,43 +250,8 @@ mkdir -p third-party
 # Install unzip if not available
 if ! command -v unzip &> /dev/null; then
     echo -e "${YELLOW}📦 unzip not found. Installing...${NC}"
-    sudo apt install zip -y
+    sudo apt install unzip -y
     echo -e "${GREEN}✅ unzip installed${NC}"
-fi
-
-# Check if libtorch already exists
-if [ -d "$LIBTORCH_DIR" ]; then
-    echo -e "${YELLOW}⚠️  libtorch already exists in $LIBTORCH_DIR${NC}"
-    read -p "$(echo -e ${CYAN}Do you want to re-download? \(y/N\): ${NC})" -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${GREEN}✅ Skipping libtorch download.${NC}"
-    else
-        echo -e "${RED}🗑️  Removing existing libtorch...${NC}"
-        rm -rf "$LIBTORCH_DIR"
-
-        # Download libtorch
-        echo -e "${BLUE}⬇️  Downloading libtorch...${NC}"
-        cd third-party
-        wget -q --show-progress "$LIBTORCH_URL" -O libtorch.zip
-
-        # Extract
-        echo -e "${BLUE}📂 Extracting libtorch...${NC}"
-        unzip -q libtorch.zip
-        rm libtorch.zip
-        cd ..
-    fi
-else
-    # Download libtorch
-    echo -e "${BLUE}⬇️  Downloading libtorch...${NC}"
-    cd third-party
-    wget -q --show-progress "$LIBTORCH_URL" -O libtorch.zip
-
-    # Extract
-    echo -e "${BLUE}📂 Extracting libtorch...${NC}"
-    unzip -q libtorch.zip
-    rm libtorch.zip
-    cd ..
 fi
 
 # Download Catch2 header
@@ -184,66 +306,27 @@ else
     echo -e "${GREEN}✅ CUTLASS installed${NC}"
 fi
 
-# Setup Python virtual environment
+# Install additional Python packages
 echo ""
-echo -e "${BLUE}🐍 Setting up Python virtual environment...${NC}"
-
-# Install pip and venv if remote setup is requested
-if [ "$REMOTE_SETUP" = true ]; then
-    echo -e "${YELLOW}📦 Remote setup: Installing pip and venv...${NC}"
-    sudo apt update
-    sudo apt install -y python3-pip python3-venv python3-dev
-    echo -e "${GREEN}✅ pip and venv installed${NC}"
-fi
-
-# Check if venv directory already exists
-if [ -d "venv" ]; then
-    echo -e "${YELLOW}⚠️  Virtual environment already exists${NC}"
-    read -p "$(echo -e ${CYAN}Do you want to recreate it? \(y/N\): ${NC})" -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${RED}🗑️  Removing existing virtual environment...${NC}"
-        rm -rf venv
-        echo -e "${BLUE}📦 Creating virtual environment...${NC}"
-        python3 -m venv venv
-        echo -e "${GREEN}✅ Virtual environment created${NC}"
-    else
-        echo -e "${GREEN}✅ Using existing virtual environment${NC}"
-    fi
-else
-    echo -e "${BLUE}📦 Creating virtual environment...${NC}"
-    python3 -m venv venv
-    echo -e "${GREEN}✅ Virtual environment created${NC}"
-fi
-
-# Activate virtual environment and install packages
-echo -e "${BLUE}📦 Installing Python packages...${NC}"
-source venv/bin/activate
-
-# Upgrade pip
-pip install --upgrade pip -q
-
-# Construct PyTorch installation command based on CUDA version
-CUDA_VERSION_FORMATTED="${CUDA_VERSION:0:2}.${CUDA_VERSION:2}"
-TORCH_INSTALL_CMD="torch --index-url https://download.pytorch.org/whl/cu${CUDA_VERSION}"
-
-# Install PyTorch and other packages
-pip install $TORCH_INSTALL_CMD -q
-pip install loguru pandas plotly pytest click ninja -q
-
+echo -e "${BLUE}📦 Installing additional Python packages...${NC}"
+$PYTHON_CMD -m pip install --upgrade pip -q
+$PYTHON_CMD -m pip install loguru pandas plotly pytest click ninja -q
 echo -e "${GREEN}✅ Python packages installed${NC}"
-deactivate
 
 echo ""
 echo -e "${BOLD}${GREEN}✨ Setup complete!${NC}"
-echo -e "${CYAN}📍 libtorch is installed in ${BOLD}$LIBTORCH_DIR${NC}"
-echo -e "${CYAN}📍 Catch2 header is installed in ${BOLD}$CATCH2_DIR/catch.hpp${NC}"
-echo -e "${CYAN}📍 CUTLASS is installed in ${BOLD}$CUTLASS_DIR${NC}"
-echo -e "${CYAN}📍 Python venv is created in ${BOLD}venv/${NC}"
+if [ -n "$LIBTORCH_DIR" ]; then
+    echo -e "${CYAN}📍 libtorch symlink: ${BOLD}$LIBTORCH_DIR${NC} -> ${PYTORCH_PATH}"
+fi
+echo -e "${CYAN}📍 PyTorch version: ${BOLD}${PYTORCH_VERSION}${NC} (CUDA ${CUDA_VERSION})"
+echo -e "${CYAN}📍 Catch2 header: ${BOLD}$CATCH2_DIR/catch.hpp${NC}"
+echo -e "${CYAN}📍 CUTLASS: ${BOLD}$CUTLASS_DIR${NC}"
 echo ""
-echo -e "${BOLD}${YELLOW}💡 To use the Python environment:${NC}"
-echo -e "${MAGENTA}  source venv/bin/activate${NC}"
+echo -e "${BOLD}${YELLOW}💡 Build the project:${NC}"
+echo -e "${MAGENTA}  cmake -B build${NC}"
+echo -e "${MAGENTA}  cmake --build build${NC}"
 echo ""
-echo -e "${BOLD}${YELLOW}💡 To use in your CMakeLists.txt, add:${NC}"
-echo -e "${MAGENTA}  set(CMAKE_PREFIX_PATH \"\${CMAKE_PREFIX_PATH};./third-party/libtorch\")${NC}"
-echo -e "${MAGENTA}  find_package(Torch REQUIRED)${NC}"
+echo -e "${BOLD}${YELLOW}💡 Run tests:${NC}"
+echo -e "${MAGENTA}  ctest --test-dir build${NC}"
+echo ""
+echo -e "${BOLD}${YELLOW}💡 For Python scripts, use the same environment where PyTorch is installed.${NC}"
