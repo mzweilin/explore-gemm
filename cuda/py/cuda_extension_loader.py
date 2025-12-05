@@ -132,7 +132,11 @@ def find_cuda_home():
     return None
 
 
-def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = False):
+def create_cuda_extension(
+    verbose: bool = True,
+    load_autotune_kernels: bool = False,
+    load_hopper_kernels: bool = False,
+):
     """Create PyTorch extension for CUDA GEMM kernels.
 
     This function handles all the complexity of building CUDA kernels with
@@ -141,7 +145,7 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
     Args:
         verbose: Whether to show verbose build output (default: True)
         load_autotune_kernels: Whether to load autotunable kernel versions (default: False)
-                               Set to True when running autotune scripts, False for benchmarks
+        load_hopper_kernels: Whether to load Hopper-specific kernels (default: False)
 
     Returns:
         The loaded CUDA extension module
@@ -188,7 +192,7 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
     if torch.cuda.is_available():
         device_props = torch.cuda.get_device_properties(0)
         compute_capability = device_props.major * 10 + device_props.minor
-        has_hopper = compute_capability >= 90  # SM90 or higher (Hopper)
+        has_hopper = (compute_capability >= 90) and load_hopper_kernels
 
         if verbose:
             logger.info(f"🖥️  GPU: {device_props.name}")
