@@ -5,15 +5,33 @@ message(STATUS "CMake version: ${CMAKE_VERSION}")
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 # Set CUDA compiler before project() if not already set
-# INSTALL CUDA 12.8 on Debian 12 with:
-# wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb
-# sudo dpkg -i cuda-keyring_1.1-1_all.deb
-# sudo apt-get update
-# sudo apt-get -y install cuda-toolkit-12-8
+# Try to find nvcc in common locations
 if(NOT DEFINED CMAKE_CUDA_COMPILER)
-    if(EXISTS /usr/local/cuda-12.8/bin/nvcc)
-        set(CMAKE_CUDA_COMPILER /usr/local/cuda-12.8/bin/nvcc)
-        message(STATUS "Using CUDA compiler: ${CMAKE_CUDA_COMPILER}")
+    # List of common CUDA installation paths
+    set(CUDA_SEARCH_PATHS
+        /usr/local/cuda-13.0/bin/nvcc
+        /usr/local/cuda-12.8/bin/nvcc
+        /usr/local/cuda/bin/nvcc
+        /usr/bin/nvcc
+    )
+
+    foreach(NVCC_PATH ${CUDA_SEARCH_PATHS})
+        if(EXISTS ${NVCC_PATH})
+            set(CMAKE_CUDA_COMPILER ${NVCC_PATH})
+            message(STATUS "Found CUDA compiler: ${CMAKE_CUDA_COMPILER}")
+            break()
+        endif()
+    endforeach()
+
+    # If still not found, try to use 'which' to find nvcc in PATH
+    if(NOT DEFINED CMAKE_CUDA_COMPILER)
+        find_program(NVCC_PATH nvcc)
+        if(NVCC_PATH)
+            set(CMAKE_CUDA_COMPILER ${NVCC_PATH})
+            message(STATUS "Found CUDA compiler in PATH: ${CMAKE_CUDA_COMPILER}")
+        else()
+            message(WARNING "Could not find CUDA compiler (nvcc). Please set CMAKE_CUDA_COMPILER or CUDACXX environment variable.")
+        endif()
     endif()
 endif()
 
