@@ -4,6 +4,8 @@ This module provides a centralized way to build and load CUDA GEMM kernels
 for both benchmark.py and kernel_runner.py, ensuring consistent build configuration.
 """
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Tuple
 
@@ -62,6 +64,55 @@ def get_cuda_code(cuda_file: str, header_file: str, utils_header_file: str) -> T
     return cuda_code, header_code, utils_code
 
 
+def find_cuda_home():
+    """Find CUDA installation directory.
+
+    Searches in common CUDA installation locations and returns the first valid path.
+    Also sets the CUDA_HOME environment variable if not already set.
+
+    Returns:
+        Path to CUDA installation, or None if not found
+    """
+    # Check if CUDA_HOME is already set
+    if os.environ.get('CUDA_HOME'):
+        cuda_home = Path(os.environ['CUDA_HOME'])
+        if cuda_home.exists():
+            return str(cuda_home)
+
+    # List of common CUDA installation paths
+    cuda_paths = [
+        '/usr/local/cuda-13.0',
+        '/usr/local/cuda-12.8',
+        '/usr/local/cuda-12.6',
+        '/usr/local/cuda-12.4',
+        '/usr/local/cuda-12.1',
+        '/usr/local/cuda',
+    ]
+
+    # Try each path
+    for path in cuda_paths:
+        cuda_path = Path(path)
+        nvcc_path = cuda_path / 'bin' / 'nvcc'
+        if nvcc_path.exists():
+            cuda_home = str(cuda_path)
+            # Set CUDA_HOME environment variable for torch extension loader
+            os.environ['CUDA_HOME'] = cuda_home
+            return cuda_home
+
+    # Try to find nvcc in PATH
+    try:
+        nvcc_output = subprocess.check_output(['which', 'nvcc'], text=True).strip()
+        if nvcc_output:
+            # nvcc is at /path/to/cuda/bin/nvcc, get /path/to/cuda
+            cuda_home = str(Path(nvcc_output).parent.parent)
+            os.environ['CUDA_HOME'] = cuda_home
+            return cuda_home
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    return None
+
+
 def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = False):
     """Create PyTorch extension for CUDA GEMM kernels.
 
@@ -76,6 +127,13 @@ def create_cuda_extension(verbose: bool = True, load_autotune_kernels: bool = Fa
     Returns:
         The loaded CUDA extension module
     """
+    # Find and set CUDA_HOME before building extensions
+    cuda_home = find_cuda_home()
+    if cuda_home and verbose:
+        logger.info(f"🔧 Using CUDA installation at: {cuda_home}")
+    elif not cuda_home and verbose:
+        logger.warning("⚠️  Could not find CUDA installation. Extension build may fail.")
+
     file_dir = Path(__file__).parent.parent
 
     # Load all CUDA source files
