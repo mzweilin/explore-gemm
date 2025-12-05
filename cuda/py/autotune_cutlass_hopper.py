@@ -930,6 +930,15 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, adaptive_iters, target_t
         logger.info(f"   - Target benchmark time: {target_time}ms")
     logger.info("")
 
+    # Check if Hopper kernels are available
+    if not hasattr(cuda_kernels, 'get_num_cutlass_hopper_configs'):
+        logger.error("❌ Hopper kernels are not available on this GPU!")
+        logger.error("   This script requires a GPU with compute capability SM90+ (H100, H200, etc.)")
+        logger.error(f"   Your GPU: {torch.cuda.get_device_name(0)}")
+        logger.error("   Hopper-specific features (TMA, warp specialization) are not supported.")
+        logger.error("\n💡 Tip: Use autotune_cutlass.py for non-Hopper GPUs (Ampere, Ada, etc.)")
+        return
+
     # Get number of configs
     num_configs = cuda_kernels.get_num_cutlass_hopper_configs()  # type: ignore
     logger.info(f"🔧 Number of Hopper configurations: {num_configs}\n")
