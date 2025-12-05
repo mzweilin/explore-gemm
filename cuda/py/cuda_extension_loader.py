@@ -203,10 +203,16 @@ def create_cuda_extension(
                 logger.info(
                     f"   ✅ Hopper (SM90+) support detected - loading Hopper kernels"
                 )
-            else:
-                logger.warning(
-                    f"   ⚠️  Hopper (SM90+) not available - skipping Hopper kernels"
-                )
+            elif not load_hopper_kernels:
+                if compute_capability >= 90:
+                    logger.info(
+                        f"   ℹ️  Hopper kernels explicitly disabled via flag - skipping Hopper kernels"
+                    )
+                else:
+                    logger.warning(
+                        f"   ⚠️  Hopper (SM90+) not available on this GPU - skipping Hopper kernels"
+                    )
+
     else:
         if verbose:
             logger.warning("   ⚠️  CUDA not available - skipping Hopper kernels")
