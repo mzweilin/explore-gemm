@@ -98,37 +98,6 @@ def find_cuda_home():
         os.environ["CUDA_HOME"] = cuda_home
         return cuda_home
 
-    # List of common CUDA installation paths
-    # (omitting /usr/local/cuda as it's now checked first)
-    cuda_paths = [
-        "/usr/local/cuda-13.0",
-        "/usr/local/cuda-12.8",
-        "/usr/local/cuda-12.6",
-        "/usr/local/cuda-12.4",
-        "/usr/local/cuda-12.1",
-    ]
-
-    # Try each path
-    for path in cuda_paths:
-        cuda_path = Path(path)
-        nvcc_path = cuda_path / "bin" / "nvcc"
-        if nvcc_path.exists():
-            cuda_home = str(cuda_path)
-            # Set CUDA_HOME environment variable for torch extension loader
-            os.environ["CUDA_HOME"] = cuda_home
-            return cuda_home
-
-    # Try to find nvcc in PATH
-    try:
-        nvcc_output = subprocess.check_output(["which", "nvcc"], text=True).strip()
-        if nvcc_output:
-            # nvcc is at /path/to/cuda/bin/nvcc, get /path/to/cuda
-            cuda_home = str(Path(nvcc_output).parent.parent)
-            os.environ["CUDA_HOME"] = cuda_home
-            return cuda_home
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-
     return None
 
 
