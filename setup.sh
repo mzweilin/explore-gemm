@@ -122,16 +122,17 @@ else
         # Create virtual environment
         VENV_DIR="venv"
 
+        # Detect Python version first
+        PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+
         # Check if python3-venv is available (required on Debian/Ubuntu)
-        if ! $PYTHON_CMD -m venv --help &> /dev/null; then
-            echo -e "${YELLOW}⚠️  python3-venv module not found!${NC}"
-            echo -e "${BLUE}📦 Installing python3-venv package...${NC}"
+        # On Debian/Ubuntu, the venv module might be in a separate package
+        if command -v apt &> /dev/null; then
+            # Check if the venv package is installed
+            if ! dpkg -l | grep -q "python${PYTHON_VERSION}-venv"; then
+                echo -e "${YELLOW}⚠️  python${PYTHON_VERSION}-venv package not found!${NC}"
+                echo -e "${BLUE}📦 Installing python${PYTHON_VERSION}-venv package...${NC}"
 
-            # Detect Python version
-            PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
-
-            # Try to install python3-venv
-            if command -v apt &> /dev/null; then
                 if [ "$EUID" -eq 0 ]; then
                     apt update -qq && apt install -y python${PYTHON_VERSION}-venv
                 else
@@ -144,13 +145,9 @@ else
                 else
                     echo -e "${RED}❌ Error: Failed to install python${PYTHON_VERSION}-venv${NC}"
                     echo -e "${YELLOW}Please install manually:${NC}"
-                    echo -e "${CYAN}   sudo apt install python${PYTHON_VERSION}-venv${NC}"
+                    echo -e "${CYAN}   apt install python${PYTHON_VERSION}-venv${NC}"
                     exit 1
                 fi
-            else
-                echo -e "${RED}❌ Error: apt package manager not found${NC}"
-                echo -e "${YELLOW}Please install python venv support manually for your distribution${NC}"
-                exit 1
             fi
         fi
 
