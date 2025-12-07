@@ -106,22 +106,74 @@ elif [ -n "$VIRTUAL_ENV" ]; then
     echo -e "${GREEN}   Environment name: ${BOLD}${ENV_NAME}${NC}"
 else
     echo -e "${YELLOW}⚠️  Warning: No conda or virtualenv detected!${NC}"
-    echo -e "${YELLOW}   Using system Python installation.${NC}"
     echo ""
-    read -p "$(echo -e ${CYAN}Do you want to continue with system Python? \(y/N\): ${NC})" -n 1 -r
+    echo -e "${BLUE}💡 Would you like to automatically create a virtual environment?${NC}"
+    echo -e "${CYAN}   This will:${NC}"
+    echo -e "${CYAN}   1. Create a virtual environment in ./venv${NC}"
+    echo -e "${CYAN}   2. Install PyTorch with CUDA 12.8 support${NC}"
+    echo -e "${CYAN}   3. Continue with the setup${NC}"
+    echo ""
+    read -p "$(echo -e ${CYAN}Create virtual environment? \(Y/n\): ${NC})" -n 1 -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${BLUE}💡 It's recommended to use conda or virtualenv:${NC}"
-        echo -e "${CYAN}   # Using conda:${NC}"
-        echo -e "${CYAN}   conda create -n gemm python=3.12${NC}"
-        echo -e "${CYAN}   conda activate gemm${NC}"
-        echo -e "${CYAN}   conda install pytorch pytorch-cuda=12.8 -c pytorch -c nvidia${NC}"
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        echo -e "${YELLOW}⚠️  Continuing with system Python installation.${NC}"
         echo ""
-        echo -e "${CYAN}   # Or using virtualenv:${NC}"
-        echo -e "${CYAN}   python3 -m venv gemm_env${NC}"
-        echo -e "${CYAN}   source gemm_env/bin/activate${NC}"
-        echo -e "${CYAN}   pip install torch --index-url https://download.pytorch.org/whl/cu128${NC}"
-        exit 0
+    else
+        # Create virtual environment
+        VENV_DIR="venv"
+        echo -e "${BLUE}🔧 Creating virtual environment in ./${VENV_DIR}...${NC}"
+
+        if [ -d "$VENV_DIR" ]; then
+            echo -e "${YELLOW}⚠️  Virtual environment already exists at ./${VENV_DIR}${NC}"
+            read -p "$(echo -e ${CYAN}Remove and recreate? \(y/N\): ${NC})" -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                rm -rf "$VENV_DIR"
+            else
+                echo -e "${GREEN}✅ Using existing virtual environment${NC}"
+                source "$VENV_DIR/bin/activate"
+                ENV_TYPE="virtualenv"
+                ENV_NAME=$(basename "$VIRTUAL_ENV")
+                echo -e "${GREEN}   Environment activated: ${BOLD}${ENV_NAME}${NC}"
+            fi
+        fi
+
+        if [ ! -d "$VENV_DIR" ]; then
+            $PYTHON_CMD -m venv "$VENV_DIR"
+            echo -e "${GREEN}✅ Virtual environment created${NC}"
+
+            # Activate the virtual environment
+            echo -e "${BLUE}🔧 Activating virtual environment...${NC}"
+            source "$VENV_DIR/bin/activate"
+
+            # Update Python command to use the one from venv
+            PYTHON_CMD=python
+
+            echo -e "${GREEN}✅ Virtual environment activated${NC}"
+
+            # Install PyTorch
+            echo -e "${BLUE}📦 Installing PyTorch with CUDA 12.8 support...${NC}"
+            echo -e "${CYAN}   This may take a few minutes...${NC}"
+            pip install --upgrade pip -q
+            pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}✅ PyTorch installed successfully${NC}"
+                ENV_TYPE="virtualenv"
+                ENV_NAME="venv"
+            else
+                echo -e "${RED}❌ Error: Failed to install PyTorch${NC}"
+                echo -e "${YELLOW}Please try installing manually:${NC}"
+                echo -e "${CYAN}   source venv/bin/activate${NC}"
+                echo -e "${CYAN}   pip install torch --index-url https://download.pytorch.org/whl/cu128${NC}"
+                exit 1
+            fi
+        fi
+
+        echo ""
+        echo -e "${BOLD}${YELLOW}📝 Note: To use this environment in the future, run:${NC}"
+        echo -e "${CYAN}   source venv/bin/activate${NC}"
+        echo ""
     fi
 fi
 
