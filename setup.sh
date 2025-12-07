@@ -121,6 +121,39 @@ else
     else
         # Create virtual environment
         VENV_DIR="venv"
+
+        # Check if python3-venv is available (required on Debian/Ubuntu)
+        if ! $PYTHON_CMD -m venv --help &> /dev/null; then
+            echo -e "${YELLOW}⚠️  python3-venv module not found!${NC}"
+            echo -e "${BLUE}📦 Installing python3-venv package...${NC}"
+
+            # Detect Python version
+            PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+
+            # Try to install python3-venv
+            if command -v apt &> /dev/null; then
+                if [ "$EUID" -eq 0 ]; then
+                    apt update -qq && apt install -y python${PYTHON_VERSION}-venv
+                else
+                    echo -e "${YELLOW}   Need sudo privileges to install python${PYTHON_VERSION}-venv${NC}"
+                    sudo apt update -qq && sudo apt install -y python${PYTHON_VERSION}-venv
+                fi
+
+                if [ $? -eq 0 ]; then
+                    echo -e "${GREEN}✅ python${PYTHON_VERSION}-venv installed${NC}"
+                else
+                    echo -e "${RED}❌ Error: Failed to install python${PYTHON_VERSION}-venv${NC}"
+                    echo -e "${YELLOW}Please install manually:${NC}"
+                    echo -e "${CYAN}   sudo apt install python${PYTHON_VERSION}-venv${NC}"
+                    exit 1
+                fi
+            else
+                echo -e "${RED}❌ Error: apt package manager not found${NC}"
+                echo -e "${YELLOW}Please install python venv support manually for your distribution${NC}"
+                exit 1
+            fi
+        fi
+
         echo -e "${BLUE}🔧 Creating virtual environment in ./${VENV_DIR}...${NC}"
 
         if [ -d "$VENV_DIR" ]; then
@@ -140,6 +173,12 @@ else
 
         if [ ! -d "$VENV_DIR" ]; then
             $PYTHON_CMD -m venv "$VENV_DIR"
+
+            if [ $? -ne 0 ]; then
+                echo -e "${RED}❌ Error: Failed to create virtual environment${NC}"
+                exit 1
+            fi
+
             echo -e "${GREEN}✅ Virtual environment created${NC}"
 
             # Activate the virtual environment
