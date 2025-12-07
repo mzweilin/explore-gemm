@@ -125,27 +125,38 @@ else
         # Detect Python version first
         PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
 
-        # Check if python3-venv is available (required on Debian/Ubuntu)
-        # On Debian/Ubuntu, the venv module might be in a separate package
+        # Check if python3-venv and python3-dev are available (required on Debian/Ubuntu)
+        # On Debian/Ubuntu, the venv module and dev headers might be in separate packages
         if command -v apt &> /dev/null; then
+            PACKAGES_TO_INSTALL=()
+
             # Check if the venv package is installed
             if ! dpkg -l | grep -q "python${PYTHON_VERSION}-venv"; then
-                echo -e "${YELLOW}⚠️  python${PYTHON_VERSION}-venv package not found!${NC}"
-                echo -e "${BLUE}📦 Installing python${PYTHON_VERSION}-venv package...${NC}"
+                PACKAGES_TO_INSTALL+=("python${PYTHON_VERSION}-venv")
+            fi
+
+            # Check if the dev package is installed (needed for building extensions)
+            if ! dpkg -l | grep -q "python${PYTHON_VERSION}-dev"; then
+                PACKAGES_TO_INSTALL+=("python${PYTHON_VERSION}-dev")
+            fi
+
+            if [ ${#PACKAGES_TO_INSTALL[@]} -gt 0 ]; then
+                echo -e "${YELLOW}⚠️  Missing Python packages: ${PACKAGES_TO_INSTALL[*]}${NC}"
+                echo -e "${BLUE}📦 Installing required packages...${NC}"
 
                 if [ "$EUID" -eq 0 ]; then
-                    apt update -qq && apt install -y python${PYTHON_VERSION}-venv
+                    apt update -qq && apt install -y "${PACKAGES_TO_INSTALL[@]}"
                 else
-                    echo -e "${YELLOW}   Need sudo privileges to install python${PYTHON_VERSION}-venv${NC}"
-                    sudo apt update -qq && sudo apt install -y python${PYTHON_VERSION}-venv
+                    echo -e "${YELLOW}   Need sudo privileges to install packages${NC}"
+                    sudo apt update -qq && sudo apt install -y "${PACKAGES_TO_INSTALL[@]}"
                 fi
 
                 if [ $? -eq 0 ]; then
-                    echo -e "${GREEN}✅ python${PYTHON_VERSION}-venv installed${NC}"
+                    echo -e "${GREEN}✅ Python packages installed: ${PACKAGES_TO_INSTALL[*]}${NC}"
                 else
-                    echo -e "${RED}❌ Error: Failed to install python${PYTHON_VERSION}-venv${NC}"
+                    echo -e "${RED}❌ Error: Failed to install Python packages${NC}"
                     echo -e "${YELLOW}Please install manually:${NC}"
-                    echo -e "${CYAN}   apt install python${PYTHON_VERSION}-venv${NC}"
+                    echo -e "${CYAN}   apt install ${PACKAGES_TO_INSTALL[*]}${NC}"
                     exit 1
                 fi
             fi
