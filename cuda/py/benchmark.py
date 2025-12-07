@@ -109,7 +109,7 @@ def flush_l2_cache():
 
 # Load CUDA kernels
 logger.info("🚀 Loading CUDA kernels...")
-cuda_kernels = create_cuda_extension(verbose=True)
+cuda_kernels = create_cuda_extension(verbose=True, load_hopper_kernels=True)
 
 
 def cuda_naive_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
