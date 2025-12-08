@@ -42,7 +42,7 @@ struct CutlassHopperGemmConfig
 
     // Tile and cluster configuration for H100
     using TileShape = Shape<_128, _128, _64>; // CTA tile (M, N, K)
-    using ClusterShape = Shape<_2, _1, _1>;   // Thread block cluster
+    using ClusterShape = Shape<_1, _2, _1>;   // Thread block cluster
 
     // Warp specialization schedules
     using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
