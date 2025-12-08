@@ -42,8 +42,7 @@ struct CutlassHopperGemmConfig
 
     // Tile and cluster configuration for H100
     using TileShape = Shape<_128, _128, _64>; // CTA tile (M, N, K)
-    using ClusterShape = Shape<_1, _1, _1>;   // Not TBC
-    // using ClusterShape = Shape<_2, _1, _1>;   // Thread block cluster
+    using ClusterShape = Shape<_2, _1, _1>;   // Thread block cluster
 
     // Warp specialization schedules
     using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
@@ -85,8 +84,8 @@ struct CutlassHopperGemmConfig
 };
 
 // Type aliases for FP16 and BF16
-using FP16HopperConfig = CutlassHopperGemmConfig<cutlass::half_t>;
-using BF16HopperConfig = CutlassHopperGemmConfig<cutlass::bfloat16_t>;
+using FP16HopperConfig = CutlassHopperGemmConfig<half_t>;
+using BF16HopperConfig = CutlassHopperGemmConfig<bfloat16_t>;
 
 template <typename Config>
 cudaError_t cutlass_hopper_gemm_launch(
