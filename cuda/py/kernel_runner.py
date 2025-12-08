@@ -64,7 +64,7 @@ torch.backends.cudnn.allow_tf32 = True
 
 # Load CUDA kernels (with less verbose output for kernel runner)
 logger.info("🚀 Loading CUDA kernels...")
-cuda_kernels = create_cuda_extension(verbose=False)
+cuda_kernels = create_cuda_extension(verbose=True, load_hopper_kernels=True)
 logger.success("✅ CUDA kernels loaded successfully!")
 
 
