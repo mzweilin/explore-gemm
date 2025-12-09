@@ -23,7 +23,7 @@ constexpr int STAGE_AUTO = -1;
 
 template <int TileM, int TileN, int TileK,
           int ClusterM, int ClusterN, int ClusterK,
-          int Stages,  // -1 for Auto, or explicit count (3-6)
+          int Stages, // -1 for Auto, or explicit count (3-6)
           typename ElementType>
 struct CutlassHopperGemmAutotuneConfig
 {
@@ -54,17 +54,15 @@ struct CutlassHopperGemmAutotuneConfig
     using KernelSchedule = typename std::conditional<
         (TileM < 128),
         cutlass::gemm::KernelTmaWarpSpecialized,
-        cutlass::gemm::KernelTmaWarpSpecializedCooperative
-    >::type;
+        cutlass::gemm::KernelTmaWarpSpecializedCooperative>::type;
     using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
-    using TypeSchedulerType = void;
+    using TileSchedulerType = void;
 
     // Select stage count policy based on template parameter
     using StageCountType = typename std::conditional<
         Stages == STAGE_AUTO,
         cutlass::gemm::collective::StageCountAuto,
-        cutlass::gemm::collective::StageCount<Stages>
-    >::type;
+        cutlass::gemm::collective::StageCount<Stages>>::type;
 
     // Build mainloop collective with configurable stage count
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -76,8 +74,7 @@ struct CutlassHopperGemmAutotuneConfig
         TileShape,
         ClusterShape,
         StageCountType,
-        KernelSchedule
-    >::CollectiveOp;
+        KernelSchedule>::CollectiveOp;
 
     // Build epilogue collective
     using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
@@ -90,16 +87,14 @@ struct CutlassHopperGemmAutotuneConfig
         ElementAccumulator,
         ElementC, LayoutC, AlignmentC,
         ElementD, LayoutD, AlignmentD,
-        EpilogueSchedule
-    >::CollectiveOp;
+        EpilogueSchedule>::CollectiveOp;
 
     // Assemble the kernel (using non-batched shape)
     using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
         Shape<int, int, int>,
         CollectiveMainloop,
         CollectiveEpilogue,
-        TypeSchedulerType
-    >;
+        TileSchedulerType>;
 
     using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
@@ -143,10 +138,9 @@ cudaError_t cutlass_hopper_gemm_autotune_launch(
     typename Config::Gemm::Arguments args{
         cutlass::gemm::GemmUniversalMode::kGemm,
         problem_shape,
-        {d_A, stride_A, d_B, stride_B},          // Mainloop args
-        {{alpha, beta}, d_D, stride_C, d_D, stride_D},  // Epilogue args
-        hw_info
-    };
+        {d_A, stride_A, d_B, stride_B},                // Mainloop args
+        {{alpha, beta}, d_D, stride_C, d_D, stride_D}, // Epilogue args
+        hw_info};
 
     // Check if the problem size is supported
     cutlass::Status status = gemm_op.can_implement(args);
@@ -157,7 +151,7 @@ cudaError_t cutlass_hopper_gemm_autotune_launch(
 
     // Initialize the kernel
     size_t workspace_size = Config::Gemm::get_workspace_size(args);
-    void* workspace = nullptr;
+    void *workspace = nullptr;
 
     if (workspace_size > 0)
     {
@@ -196,20 +190,20 @@ using HopperGemmCfg = CutlassHopperGemmAutotuneConfig<TM, TN, TK, CM, CN, CK, St
 // Base configurations (tile and cluster shapes)
 struct HopperBaseConfig
 {
-    int TM, TN, TK;     // Tile shape
-    int CM, CN, CK;     // Cluster shape
+    int TM, TN, TK; // Tile shape
+    int CM, CN, CK; // Cluster shape
 };
 
 constexpr HopperBaseConfig kHopperBaseConfigs[] = {
-    {128, 128, 64,  2, 1, 1},   // 0: Balanced tile with horizontal cluster
-    {128, 256, 64,  2, 1, 1},   // 1: Wide tile with horizontal cluster
-    {256, 128, 64,  1, 2, 1},   // 2: Tall tile with vertical cluster
-    {128, 128, 128, 2, 1, 1},   // 3: Deeper K with horizontal cluster
-    {256, 256, 64,  2, 2, 1},   // 4: Large tile with 2D cluster
-    {128, 64,  64,  2, 1, 1},   // 5: Narrow tile with horizontal cluster
-    {64,  128, 64,  1, 2, 1},   // 6: Narrow tall tile with vertical cluster
-    {64,  64,  128, 1, 1, 1},   // 7: Small tile, deep K, no cluster
-    {128, 128, 64,  1, 1, 1},   // 8: Balanced tile, no cluster
+    {128, 128, 64, 2, 1, 1},  // 0: Balanced tile with horizontal cluster
+    {128, 256, 64, 2, 1, 1},  // 1: Wide tile with horizontal cluster
+    {256, 128, 64, 1, 2, 1},  // 2: Tall tile with vertical cluster
+    {128, 128, 128, 2, 1, 1}, // 3: Deeper K with horizontal cluster
+    {256, 256, 64, 2, 2, 1},  // 4: Large tile with 2D cluster
+    {128, 64, 64, 2, 1, 1},   // 5: Narrow tile with horizontal cluster
+    {64, 128, 64, 1, 2, 1},   // 6: Narrow tall tile with vertical cluster
+    {64, 64, 128, 1, 1, 1},   // 7: Small tile, deep K, no cluster
+    {128, 128, 64, 1, 1, 1},  // 8: Balanced tile, no cluster
 };
 
 constexpr int NUM_BASE_CONFIGS = sizeof(kHopperBaseConfigs) / sizeof(HopperBaseConfig);
@@ -279,25 +273,24 @@ cudaError_t dispatch_cutlass_hopper_autotune(
         // 9 base configs × 4 stage variants = 36 total configurations
         // Config ID = base_idx * 4 + stage_idx
         // Base 0 (128x128x64_C2x1x1): Auto, S3, S4, S5
-        CASE_CONFIG(0) CASE_CONFIG(1) CASE_CONFIG(2) CASE_CONFIG(3)
-        // Base 1 (128x256x64_C2x1x1): Auto, S3, S4, S5
-        CASE_CONFIG(4) CASE_CONFIG(5) CASE_CONFIG(6) CASE_CONFIG(7)
-        // Base 2 (256x128x64_C1x2x1): Auto, S3, S4, S5
-        CASE_CONFIG(8) CASE_CONFIG(9) CASE_CONFIG(10) CASE_CONFIG(11)
-        // Base 3 (128x128x128_C2x1x1): Auto, S3, S4, S5
-        CASE_CONFIG(12) CASE_CONFIG(13) CASE_CONFIG(14) CASE_CONFIG(15)
-        // Base 4 (256x256x64_C2x2x1): Auto, S3, S4, S5
-        CASE_CONFIG(16) CASE_CONFIG(17) CASE_CONFIG(18) CASE_CONFIG(19)
-        // Base 5 (128x64x64_C2x1x1): Auto, S3, S4, S5
-        CASE_CONFIG(20) CASE_CONFIG(21) CASE_CONFIG(22) CASE_CONFIG(23)
-        // Base 6 (64x128x64_C1x2x1): Auto, S3, S4, S5
-        CASE_CONFIG(24) CASE_CONFIG(25) CASE_CONFIG(26) CASE_CONFIG(27)
-        // Base 7 (64x64x128_C1x1x1): Auto, S3, S4, S5
-        CASE_CONFIG(28) CASE_CONFIG(29) CASE_CONFIG(30) CASE_CONFIG(31)
-        // Base 8 (128x128x64_C1x1x1): Auto, S3, S4, S5
-        CASE_CONFIG(32) CASE_CONFIG(33) CASE_CONFIG(34) CASE_CONFIG(35)
-    default:
-        return cudaErrorInvalidValue;
+        CASE_CONFIG(0)
+        CASE_CONFIG(1) CASE_CONFIG(2) CASE_CONFIG(3)
+            // Base 1 (128x256x64_C2x1x1): Auto, S3, S4, S5
+            CASE_CONFIG(4) CASE_CONFIG(5) CASE_CONFIG(6) CASE_CONFIG(7)
+            // Base 2 (256x128x64_C1x2x1): Auto, S3, S4, S5
+            CASE_CONFIG(8) CASE_CONFIG(9) CASE_CONFIG(10) CASE_CONFIG(11)
+            // Base 3 (128x128x128_C2x1x1): Auto, S3, S4, S5
+            CASE_CONFIG(12) CASE_CONFIG(13) CASE_CONFIG(14) CASE_CONFIG(15)
+            // Base 4 (256x256x64_C2x2x1): Auto, S3, S4, S5
+            CASE_CONFIG(16) CASE_CONFIG(17) CASE_CONFIG(18) CASE_CONFIG(19)
+            // Base 5 (128x64x64_C2x1x1): Auto, S3, S4, S5
+            CASE_CONFIG(20) CASE_CONFIG(21) CASE_CONFIG(22) CASE_CONFIG(23)
+            // Base 6 (64x128x64_C1x2x1): Auto, S3, S4, S5
+            CASE_CONFIG(24) CASE_CONFIG(25) CASE_CONFIG(26) CASE_CONFIG(27)
+            // Base 7 (64x64x128_C1x1x1): Auto, S3, S4, S5
+            CASE_CONFIG(28) CASE_CONFIG(29) CASE_CONFIG(30) CASE_CONFIG(31)
+            // Base 8 (128x128x64_C1x1x1): Auto, S3, S4, S5
+            CASE_CONFIG(32) CASE_CONFIG(33) CASE_CONFIG(34) CASE_CONFIG(35) default : return cudaErrorInvalidValue;
 #undef CASE_CONFIG
     }
 }
@@ -309,7 +302,7 @@ void cutlass_hopper_gemm_autotune_pytorch_wrapper(
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix,
-    std::string&& dtype_name,
+    std::string &&dtype_name,
     const at::ScalarType expected_type)
 {
     // Validate input tensors

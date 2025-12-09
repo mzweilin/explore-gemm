@@ -44,9 +44,17 @@ struct CutlassHopperGemmConfig
     using TileShape = Shape<_128, _128, _64>; // CTA tile (M, N, K)
     using ClusterShape = Shape<_1, _2, _1>;   // Thread block cluster
 
-    // Warp specialization schedules
-    using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
-    using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+    // 1. TMA Warp Specialized
+    // using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
+    // using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+
+    // 2. TMA Warp Specialized Persistent Collective
+    using KernelSchedule = typename std::conditional<
+        (TileM < 128),
+        cutlass::gemm::KernelTmaWarpSpecialized,
+        cutlass::gemm::KernelTmaWarpSpecializedCooperative>::type;
+    using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
+    using TileSchedulerType = cutlass::gemm::PersistentScheduler;
 
     // Build mainloop collective with automatic stage count calculation
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -57,8 +65,7 @@ struct CutlassHopperGemmConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        // cutlass::gemm::collective::StageCount<2>,
-        cutlass::gemm::collective::StageCountAuto,
+        cutlass::gemm::collective::StageCountAuto, // or cutlass::gemm::collective::StageCount<N>,
         KernelSchedule>::CollectiveOp;
 
     // Build epilogue collective
@@ -75,10 +82,18 @@ struct CutlassHopperGemmConfig
         EpilogueSchedule>::CollectiveOp;
 
     // Assemble the kernel (using non-batched shape)
+    // 1. TMA Warp Specialized
     using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
         Shape<int, int, int>,
         CollectiveMainloop,
         CollectiveEpilogue>;
+
+    // 2. TMA Warp Specialized Persistent Collective
+    using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+        Shape<int, int, int>,
+        CollectiveMainloop,
+        CollectiveEpilogue,
+        TileSchedulerType>;
 
     using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
