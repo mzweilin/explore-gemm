@@ -346,11 +346,19 @@ echo ""
 # Create third-party directory if it doesn't exist
 mkdir -p third-party
 
-# Install unzip if not available
+# Install unzip and cmake if not available
+PACKAGES_NEEDED=()
 if ! command -v unzip &> /dev/null; then
-    echo -e "${YELLOW}📦 unzip not found. Installing...${NC}"
-    sudo apt install unzip -y
-    echo -e "${GREEN}✅ unzip installed${NC}"
+    PACKAGES_NEEDED+=(unzip)
+fi
+if ! command -v cmake &> /dev/null; then
+    PACKAGES_NEEDED+=(cmake)
+fi
+
+if [ ${#PACKAGES_NEEDED[@]} -gt 0 ]; then
+    echo -e "${YELLOW}📦 Missing packages: ${PACKAGES_NEEDED[*]}. Installing...${NC}"
+    sudo apt install -y "${PACKAGES_NEEDED[@]}"
+    echo -e "${GREEN}✅ Packages installed: ${PACKAGES_NEEDED[*]}${NC}"
 fi
 
 # Download Catch2 header

@@ -41,24 +41,26 @@ struct CutlassHopperGemmConfig
     static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
 
     // Tile and cluster configuration for H100
-    constexpr const auto TileM = cute::_128;
-    constexpr const auto TileN = cute::_128;
-    constexpr const auto TileK = cute::_64;
+    static constexpr int TileM = 128;
+    static constexpr int TileN = 128;
+    static constexpr int TileK = 64;
 
-    using TileShape = Shape<TileM, TileN, TileK>; // CTA tile (M, N, K)
-    using ClusterShape = Shape<_1, _2, _1>;       // Thread block cluster
+    using TileShape = Shape<cute::Int<TileM>, cute::Int<TileN>, cute::Int<TileK>>; // CTA tile (M, N, K)
+    using ClusterShape = Shape<_1, _1, _1>; // Thread block cluster
 
     // 1. TMA Warp Specialized
     // using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
     // using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
 
     // 2. TMA Warp Specialized Persistent Collective
-    using KernelSchedule = typename std::conditional<
-        (TileM < 128),
-        cutlass::gemm::KernelTmaWarpSpecialized,
-        cutlass::gemm::KernelTmaWarpSpecializedCooperative>::type;
+    // using KernelSchedule = typename std::conditional<
+    //     (TileM < 128),
+    //     cutlass::gemm::KernelTmaWarpSpecialized,
+    //     cutlass::gemm::KernelTmaWarpSpecializedCooperative>::type;
+    using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperative;
     using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
     using TileSchedulerType = cutlass::gemm::PersistentScheduler;
+    // using TileSchedulerType = void;
 
     // Build mainloop collective with automatic stage count calculation
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -69,7 +71,8 @@ struct CutlassHopperGemmConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        cutlass::gemm::collective::StageCountAuto, // or cutlass::gemm::collective::StageCount<N>,
+        cutlass::gemm::collective::StageCount<5>,
+        // cutlass::gemm::collective::StageCountAuto, // or cutlass::gemm::collective::StageCount<N>,
         KernelSchedule>::CollectiveOp;
 
     // Build epilogue collective
@@ -87,10 +90,10 @@ struct CutlassHopperGemmConfig
 
     // Assemble the kernel (using non-batched shape)
     // 1. TMA Warp Specialized
-    using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-        Shape<int, int, int>,
-        CollectiveMainloop,
-        CollectiveEpilogue>;
+    // using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+    //     Shape<int, int, int>,
+    //     CollectiveMainloop,
+    //     CollectiveEpilogue>;
 
     // 2. TMA Warp Specialized Persistent Collective
     using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
@@ -129,7 +132,7 @@ cudaError_t cutlass_hopper_gemm_launch(
     using StrideD = typename Config::GemmKernel::StrideD;
 
     auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {M, K, 1});
-    auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {N, K, 1});
+    auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {K, N, 1});
     auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {M, N, 1});
     auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {M, N, 1});
 
@@ -244,8 +247,16 @@ void cutlass_hopper_gemm_pytorch_wrapper(
     const cudaError_t err = cutlass_hopper_gemm_launch<Config>(
         M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
 
+    // Synchronize to catch any kernel launch errors
+    if (err == cudaSuccess) {
+        cudaError_t sync_err = cudaDeviceSynchronize();
+        TORCH_CHECK(sync_err == cudaSuccess,
+                    "CUTLASS Hopper GEMM (", dtype_name, ") kernel execution failed: ",
+                    cudaGetErrorString(sync_err));
+    }
+
     TORCH_CHECK(err == cudaSuccess,
-                "CUTLASS Hopper GEMM (", dtype_name, ") failed: ", cudaGetErrorString(err));
+                "CUTLASS Hopper GEMM (", dtype_name, ") launch failed: ", cudaGetErrorString(err));
 }
 
 // FP16 launcher
