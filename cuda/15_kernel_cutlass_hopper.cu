@@ -41,6 +41,10 @@ struct CutlassHopperGemmConfig
     static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
 
     // Tile and cluster configuration for H100
+    constexpr const TileM = 128;
+    constexpr const TileN = 128;
+    constexpr const TileK = 64;
+
     using TileShape = Shape<_128, _128, _64>; // CTA tile (M, N, K)
     using ClusterShape = Shape<_1, _2, _1>;   // Thread block cluster
 
