@@ -332,10 +332,10 @@ def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Ten
     Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
     """
     # CUTLASS Hopper outputs FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c_fp32)  # type: ignore
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c)  # type: ignore
     # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    return c
 
 
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:

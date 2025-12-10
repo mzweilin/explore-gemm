@@ -24,8 +24,8 @@ struct CutlassHopperGemmConfig
     // Element types
     using ElementA = ElementType;
     using ElementB = ElementType;
-    using ElementC = float;
-    using ElementD = float;
+    using ElementC = ElementType;  // ✅ Changed from bfloat16_t
+    using ElementD = ElementType;  // ✅ Changed from bfloat16_t
     using ElementAccumulator = float;
 
     // Layouts
@@ -49,12 +49,20 @@ struct CutlassHopperGemmConfig
     // using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
 
     // 2. TMA Warp Specialized Persistent Collective
+    // using KernelSchedule = typename std::conditional<
+    //     (TileM < 128),
+    //     cutlass::gemm::KernelTmaWarpSpecialized,
+    //     cutlass::gemm::KernelTmaWarpSpecializedCooperative>::type;
+    // using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
+    // using TileSchedulerType = cutlass::gemm::PersistentScheduler;
+
+    // 3. TMA Warp Specialized Cooperative Ping Pong
     using KernelSchedule = typename std::conditional<
         (TileM < 128),
         cutlass::gemm::KernelTmaWarpSpecialized,
-        cutlass::gemm::KernelTmaWarpSpecializedCooperative>::type;
-    using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
-    using TileSchedulerType = cutlass::gemm::PersistentScheduler;
+        cutlass::gemm::KernelTmaWarpSpecializedPingpong>::type;
+    using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+    using TileSchedulerType = void;
 
     // Build mainloop collective with automatic stage count calculation
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -199,7 +207,7 @@ void cutlass_hopper_gemm_pytorch_wrapper(
 
     TORCH_CHECK(matrix_a.scalar_type() == expected_type, "Matrix A must be ", dtype_name);
     TORCH_CHECK(matrix_b.scalar_type() == expected_type, "Matrix B must be ", dtype_name);
-    TORCH_CHECK(output_matrix.scalar_type() == at::kFloat, "Output matrix must be float32");
+    // TORCH_CHECK(output_matrix.scalar_type() == at::kFloat, "Output matrix must be float32");
 
     TORCH_CHECK(matrix_a.dim() == 2 && matrix_b.dim() == 2, "A and B must be 2D tensors");
     TORCH_CHECK(matrix_a.is_contiguous() && matrix_b.is_contiguous(),
@@ -228,7 +236,7 @@ void cutlass_hopper_gemm_pytorch_wrapper(
         reinterpret_cast<const typename Config::ElementA *>(matrix_a.data_ptr<TorchType>());
     const auto *d_B =
         reinterpret_cast<const typename Config::ElementB *>(matrix_b.data_ptr<TorchType>());
-    auto *d_D = output_matrix.data_ptr<float>();
+    auto *d_D = reinterpret_cast<typename Config::ElementD *>(output_matrix.data_ptr<TorchType>());
 
     int lda = K;
     int ldb = N;
