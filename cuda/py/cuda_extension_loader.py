@@ -468,19 +468,21 @@ namespace cg = cooperative_groups;
             ]
         )
 
-    # Add Hopper functions only if SM90+ is available
+    # Add Hopper functions only if SM90+ is available (BF16 only, FP16 not supported)
     if has_hopper:
         functions_list.extend(
             [
-                "sgemm_cutlass_hopper_fp16",
                 "sgemm_cutlass_hopper_bf16",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
             ]
         )
         # Add autotunable Hopper functions if requested
         if load_autotune_kernels:
             functions_list.extend(
                 [
-                    "sgemm_cutlass_hopper_autotune_fp16",
                     "sgemm_cutlass_hopper_autotune_bf16",
                     "get_num_cutlass_hopper_configs",
                 ]

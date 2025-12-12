@@ -33,8 +33,7 @@ Available kernels:
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs
     - cutlass_fp32: CUTLASS library GEMM with FP32 inputs (SIMT)
-    - cutlass_hopper_fp16: CUTLASS Hopper GEMM with FP16 inputs (SM90+)
-    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 inputs (SM90+)
+    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 inputs (SM90+, FP16 not supported)
 """
 
 import os
@@ -226,14 +225,6 @@ def run_cutlass_fp32_kernel(
     return c
 
 
-def run_cutlass_hopper_fp16_kernel(
-    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
-) -> torch.Tensor:
-    """Run CUTLASS Hopper GEMM kernel with FP16 inputs (SM90+)."""
-    cuda_kernels.sgemm_cutlass_hopper_fp16(a, b, c)  # type: ignore
-    return c
-
-
 def run_cutlass_hopper_bf16_kernel(
     a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
 ) -> torch.Tensor:
@@ -285,7 +276,6 @@ def run_kernel_n_times(
             "cutlass_fp16",
             "cutlass_bf16",
             "cutlass_fp32",
-            "cutlass_hopper_fp16",
             "cutlass_hopper_bf16",
         ],
         case_sensitive=False,
@@ -352,7 +342,6 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "cutlass_fp16": run_cutlass_fp16_kernel,
         "cutlass_bf16": run_cutlass_bf16_kernel,
         "cutlass_fp32": run_cutlass_fp32_kernel,
-        "cutlass_hopper_fp16": run_cutlass_hopper_fp16_kernel,
         "cutlass_hopper_bf16": run_cutlass_hopper_bf16_kernel,
     }
 
@@ -365,7 +354,6 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
             "tensorcore_db_fp16",
             "tensorcore_async_fp16",
             "cutlass_fp16",
-            "cutlass_hopper_fp16",
         ]
         and dtype == "float32"
     ):
@@ -447,7 +435,6 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "cutlass_fp16",
         "cutlass_bf16",
         "cutlass_fp32",
-        "cutlass_hopper_fp16",
         "cutlass_hopper_bf16",
     ]:
         output_dtype = torch.float32

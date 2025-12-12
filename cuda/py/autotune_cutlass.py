@@ -460,6 +460,9 @@ def benchmark_pytorch(
     Returns:
         Tuple of (median_time_ms, min_time_ms, max_time_ms) or None if failed
     """
+    # Preallocate output tensor (same dtype as input)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
+
     try:
         # Estimate runtime with a few iterations (like Triton's approach)
         if adaptive_iterations:
@@ -470,7 +473,7 @@ def benchmark_pytorch(
 
             start_estimate.record()
             for _ in range(estimate_iters):
-                _ = torch.matmul(a, b)
+                torch.matmul(a, b, out=c)
             end_estimate.record()
             torch.cuda.synchronize()
 
@@ -484,7 +487,7 @@ def benchmark_pytorch(
         for _ in range(warmup):
             if flush_cache:
                 flush_l2_cache()
-            _ = torch.matmul(a, b)
+            torch.matmul(a, b, out=c)
 
         torch.cuda.synchronize()
 
@@ -498,7 +501,7 @@ def benchmark_pytorch(
                 flush_l2_cache()
 
             start_events[i].record()
-            _ = torch.matmul(a, b)
+            torch.matmul(a, b, out=c)
             end_events[i].record()
 
         torch.cuda.synchronize()

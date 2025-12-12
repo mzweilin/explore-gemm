@@ -40,8 +40,7 @@ Available kernels:
     - tensorcore_async_bf16: CUDA Tensor Core with async pipeline (BF16)
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs (requires -d float16)
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs (requires -d bfloat16)
-    - cutlass_hopper_fp16: CUTLASS Hopper GEMM with FP16 (SM90+, requires -d float16)
-    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, requires -d bfloat16)
+    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, requires -d bfloat16, FP16 not supported)
 
 Note: When using -d float16 or -d bfloat16 without specifying kernels, FP32-only
 kernels are automatically filtered out. If you explicitly request FP32-only kernels
@@ -314,33 +313,55 @@ def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
-def cuda_cutlass_hopper_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper for CUTLASS Hopper GEMM kernel with FP16 inputs.
-
-    Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
-    """
-    # CUTLASS Hopper outputs FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_cutlass_hopper_fp16(a, b, c_fp32)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
-
-
 def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper for CUTLASS Hopper GEMM kernel with BF16 inputs.
+    """Wrapper for CUTLASS Hopper GEMM kernel with BF16 inputs (default variant).
 
     Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
+    Default: Pingpong with constant stage count.
     """
-    # CUTLASS Hopper outputs FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c_fp32)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized with Auto stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized with Constant stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Persistent with Constant stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Pingpong with Constant stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(a, b, c)  # type: ignore
+    return c
 
 
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """PyTorch reference implementation."""
-    return torch.matmul(a, b)
+    """PyTorch reference implementation.
+
+    Preallocates output tensor to match the behavior of custom CUTLASS kernels
+    for fair performance comparison.
+    """
+    # Preallocate output tensor (same dtype as input)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
+    torch.matmul(a, b, out=c)
+    return c
 
 
 def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100, flush_cache=True):
@@ -1055,55 +1076,79 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         cuda_cutlass_fp16_gemm,
                         "⚡",
                     ),
-                    (
-                        "cutlass_hopper_fp16",
-                        "CUTLASS Hopper (FP16)",
-                        cuda_cutlass_hopper_fp16_gemm,
-                        "🔮",
-                    ),
                 ]
             )
         elif dtype == "bfloat16":
-            all_kernels.extend(
-                [
-                    (
-                        "tensorcore_naive_bf16",
-                        "CUDA Tensor Core Naive (BF16)",
-                        cuda_tensorcore_naive_bf16_gemm,
-                        "🟢",
-                    ),
-                    (
-                        "tensorcore_bf16",
-                        "CUDA Tensor Core Warptiled (BF16)",
-                        cuda_tensorcore_bf16_gemm,
-                        "🚀",
-                    ),
-                    (
-                        "tensorcore_db_bf16",
-                        "CUDA Tensor Core Double Buffered (BF16)",
-                        cuda_tensorcore_db_bf16_gemm,
-                        "🔥",
-                    ),
-                    (
-                        "tensorcore_async_bf16",
-                        "CUDA Tensor Core Async (BF16)",
-                        cuda_tensorcore_async_bf16_gemm,
-                        "💨",
-                    ),
-                    (
-                        "cutlass_bf16",
-                        "CUTLASS (BF16)",
-                        cuda_cutlass_bf16_gemm,
-                        "⚡",
-                    ),
+            bf16_kernels = [
+                (
+                    "tensorcore_naive_bf16",
+                    "CUDA Tensor Core Naive (BF16)",
+                    cuda_tensorcore_naive_bf16_gemm,
+                    "🟢",
+                ),
+                (
+                    "tensorcore_bf16",
+                    "CUDA Tensor Core Warptiled (BF16)",
+                    cuda_tensorcore_bf16_gemm,
+                    "🚀",
+                ),
+                (
+                    "tensorcore_db_bf16",
+                    "CUDA Tensor Core Double Buffered (BF16)",
+                    cuda_tensorcore_db_bf16_gemm,
+                    "🔥",
+                ),
+                (
+                    "tensorcore_async_bf16",
+                    "CUDA Tensor Core Async (BF16)",
+                    cuda_tensorcore_async_bf16_gemm,
+                    "💨",
+                ),
+                (
+                    "cutlass_bf16",
+                    "CUTLASS (BF16)",
+                    cuda_cutlass_bf16_gemm,
+                    "⚡",
+                ),
+            ]
+
+            # Only add Hopper kernels if they're available (requires SM90+)
+            if hasattr(cuda_kernels, "sgemm_cutlass_hopper_bf16"):
+                hopper_kernels = [
                     (
                         "cutlass_hopper_bf16",
-                        "CUTLASS Hopper (BF16)",
+                        "CUTLASS Hopper (BF16) [Default]",
                         cuda_cutlass_hopper_bf16_gemm,
                         "🔮",
                     ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_auto",
+                        "CUTLASS Hopper TMA WarpSpec Auto",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_auto_gemm,
+                        "🌀",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_constant",
+                        "CUTLASS Hopper TMA WarpSpec Const",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_constant_gemm,
+                        "🌀",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+                        "CUTLASS Hopper TMA Persistent Const",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm,
+                        "🔄",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+                        "CUTLASS Hopper TMA Pingpong Const",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm,
+                        "🏓",
+                    ),
                 ]
-            )
+                bf16_kernels.extend(hopper_kernels)
+
+            all_kernels.extend(bf16_kernels)
 
         # Filter kernels based on user selection
         kernels = [
@@ -1111,6 +1156,19 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             for kernel_id, display_name, kernel_fn, emoji in all_kernels
             if kernel_id in kernels_to_run
         ]
+
+        # Warn if user requested kernels that are not available
+        available_kernel_ids = {kernel_id for kernel_id, _, _, _ in all_kernels}
+        unavailable_kernels = set(kernels_to_run) - available_kernel_ids
+        if unavailable_kernels:
+            for kernel_id in unavailable_kernels:
+                if kernel_id.startswith("cutlass_hopper_"):
+                    logger.warning(
+                        f"⚠️  Skipping {kernel_id}: Requires Hopper GPU (SM90+). "
+                        f"Your GPU: {torch.cuda.get_device_name(0)}"
+                    )
+                else:
+                    logger.warning(f"⚠️  Skipping {kernel_id}: Not available for this configuration")
 
         size_results = {}
 
@@ -1205,6 +1263,72 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
     # Create results DataFrame
     results_df = pd.DataFrame(all_results)
 
+    # Print summary table
+    if not results_df.empty:
+        logger.info("\n" + "="*130)
+        logger.info("📊 BENCHMARK SUMMARY - All Results Ranked by Performance")
+        logger.info("="*130 + "\n")
+
+        # Sort by size, then by speedup (descending) within each size
+        results_sorted = results_df.sort_values(['size', 'speedup'], ascending=[True, False])
+
+        # Print table header
+        logger.info(f"{'Size':<10} {'Kernel':<45} {'Time (ms)':>12} {'TFLOPS':>10} {'Bandwidth (GB/s)':>18} {'Speedup':>12} {'Rank':>6}")
+        logger.info("-"*130)
+
+        # Group by size and print results
+        current_size = None
+        for _, row in results_sorted.iterrows():
+            size = row['size']
+            kernel = row['kernel']
+
+            # Add separator between different sizes
+            if current_size is not None and current_size != size:
+                logger.info("-"*130)
+            current_size = size
+
+            # Calculate rank within this size group
+            size_group = results_sorted[results_sorted['size'] == size]
+            rank = (size_group['speedup'] > row['speedup']).sum() + 1
+
+            speedup_str = f"{row['speedup']:.2f}×"
+
+            # Emoji based on speedup
+            if abs(row['speedup'] - 1.0) < 0.01:
+                emoji = "🎯"  # PyTorch baseline
+            elif row['speedup'] > 1.0:
+                if rank == 1:
+                    emoji = "🥇"  # Best for this size
+                elif rank == 2:
+                    emoji = "🥈"  # Second best
+                elif rank == 3:
+                    emoji = "🥉"  # Third best
+                else:
+                    emoji = "🏆"  # Faster than baseline
+            else:
+                emoji = "🐢"  # Slower than baseline
+
+            logger.info(
+                f"{size:<10} {kernel:<45} {row['avg_time_ms']:>12.4f} {row['tflops']:>10.2f} {row['bandwidth_gbps']:>18.2f} {speedup_str:>11} {emoji} #{rank}"
+            )
+
+        logger.info("="*130 + "\n")
+
+        # Print overall best performing kernel (averaged across all sizes)
+        overall_summary = results_df.groupby('kernel').agg({
+            'speedup': 'mean',
+            'tflops': 'mean'
+        }).round(4).sort_values('speedup', ascending=False)
+
+        best_kernel = overall_summary.index[0]
+        best_speedup = overall_summary.iloc[0]['speedup']
+        best_tflops = overall_summary.iloc[0]['tflops']
+
+        logger.success(f"🏆 Overall Best Kernel: {best_kernel}")
+        logger.success(f"   Average Speedup: {best_speedup:.2f}× faster than PyTorch")
+        logger.success(f"   Average Performance: {best_tflops:.2f} TFLOPS")
+        logger.info("")
+
     # Create output directory
     output_dir = Path(__file__).parent / "benchmark_results"
     output_dir.mkdir(exist_ok=True)
@@ -1257,7 +1381,6 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             "cutlass_fp16",
             "cutlass_bf16",
             "cutlass_fp32",
-            "cutlass_hopper_fp16",
             "cutlass_hopper_bf16",
         ],
         case_sensitive=False,
@@ -1322,20 +1445,27 @@ def main(kernels, dtype):
                     "tensorcore_db_fp16",
                     "tensorcore_async_fp16",
                     "cutlass_fp16",
-                    "cutlass_hopper_fp16",
                 ]
             )
         elif dtype == "bfloat16":
-            kernels_to_run.extend(
-                [
-                    "tensorcore_naive_bf16",
-                    "tensorcore_bf16",
-                    "tensorcore_db_bf16",
-                    "tensorcore_async_bf16",
-                    "cutlass_bf16",
+            bf16_kernels_list = [
+                "tensorcore_naive_bf16",
+                "tensorcore_bf16",
+                "tensorcore_db_bf16",
+                "tensorcore_async_bf16",
+                "cutlass_bf16",
+            ]
+            # Only add Hopper kernels if they're available (requires SM90+)
+            if hasattr(cuda_kernels, "sgemm_cutlass_hopper_bf16"):
+                bf16_kernels_list.extend([
                     "cutlass_hopper_bf16",
-                ]
-            )
+                    "cutlass_hopper_bf16_tma_warp_specialized_auto",
+                    "cutlass_hopper_bf16_tma_warp_specialized_constant",
+                    "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+                    "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+                ])
+
+            kernels_to_run.extend(bf16_kernels_list)
     else:
         kernels_to_run = list(kernels)
 

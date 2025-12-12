@@ -4,18 +4,17 @@ This script benchmarks all CUTLASS Hopper (SM90) kernel configurations across
 different matrix sizes and finds the best configuration for each size. These
 kernels use the CUTLASS 3.x Collective Builder API with TMA and warp specialization.
 
-Usage:
-    # Autotune FP16 kernels for all power-of-2 sizes from 64 to 8192
-    python autotune_cutlass_hopper.py -d float16
+Note: Only BF16 is supported. FP16 support has been removed.
 
-    # Autotune BF16 kernels
+Usage:
+    # Autotune BF16 kernels for all power-of-2 sizes from 64 to 8192
     python autotune_cutlass_hopper.py -d bfloat16
 
     # Autotune specific sizes
-    python autotune_cutlass_hopper.py -d float16 --sizes 128 256 512 1024
+    python autotune_cutlass_hopper.py -d bfloat16 --sizes 128 256 512 1024
 
     # Load and use cached results
-    python autotune_cutlass_hopper.py -d float16 --load-cache --size 1024
+    python autotune_cutlass_hopper.py -d bfloat16 --load-cache --size 1024
 """
 
 import os
@@ -146,14 +145,11 @@ def benchmark_config(
     Returns:
         Tuple of (median_time_ms, min_time_ms, max_time_ms) or None if config failed
     """
-    # Create output tensor (FP32)
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    # Create output tensor (same dtype as input)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
 
-    # Select the appropriate kernel function
-    if dtype == "float16":
-        kernel_fn = cuda_kernels.sgemm_cutlass_hopper_autotune_fp16  # type: ignore
-    else:  # bfloat16
-        kernel_fn = cuda_kernels.sgemm_cutlass_hopper_autotune_bf16  # type: ignore
+    # Select the appropriate kernel function (only bfloat16 is supported)
+    kernel_fn = cuda_kernels.sgemm_cutlass_hopper_autotune_bf16  # type: ignore
 
     try:
         # Estimate runtime with a few iterations (like Triton's approach)
@@ -254,6 +250,9 @@ def benchmark_pytorch(
     Returns:
         Tuple of (median_time_ms, min_time_ms, max_time_ms) or None if failed
     """
+    # Preallocate output tensor (same dtype as input)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
+
     try:
         # Estimate runtime with a few iterations (like Triton's approach)
         if adaptive_iterations:
@@ -264,7 +263,7 @@ def benchmark_pytorch(
 
             start_estimate.record()
             for _ in range(estimate_iters):
-                _ = torch.matmul(a, b)
+                torch.matmul(a, b, out=c)
             end_estimate.record()
             torch.cuda.synchronize()
 
@@ -278,7 +277,7 @@ def benchmark_pytorch(
         for _ in range(warmup):
             if flush_cache:
                 flush_l2_cache()
-            _ = torch.matmul(a, b)
+            torch.matmul(a, b, out=c)
 
         torch.cuda.synchronize()
 
@@ -292,7 +291,7 @@ def benchmark_pytorch(
                 flush_l2_cache()
 
             start_events[i].record()
-            _ = torch.matmul(a, b)
+            torch.matmul(a, b, out=c)
             end_events[i].record()
 
         torch.cuda.synchronize()
@@ -835,9 +834,9 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
 @click.option(
     "--dtype",
     "-d",
-    type=click.Choice(["float16", "bfloat16"], case_sensitive=False),
+    type=click.Choice(["bfloat16"], case_sensitive=False),
     required=True,
-    help="Data type for inputs (float16 or bfloat16)",
+    help="Data type for inputs (only bfloat16 is supported)",
 )
 @click.option(
     "--sizes",
@@ -878,20 +877,20 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, adaptive_iters, target_t
     - Proper CUDA synchronization and event timing
 
     Examples:
-        # Autotune FP16 for all power-of-2 sizes (with default settings)
-        python autotune_cutlass_hopper.py -d float16
+        # Autotune BF16 for all power-of-2 sizes (with default settings)
+        python autotune_cutlass_hopper.py -d bfloat16
 
         # Autotune specific sizes
-        python autotune_cutlass_hopper.py -d float16 -s 128 -s 256 -s 512
+        python autotune_cutlass_hopper.py -d bfloat16 -s 128 -s 256 -s 512
 
         # Disable cache flushing for faster benchmarking
-        python autotune_cutlass_hopper.py -d float16 --no-cache-flush
+        python autotune_cutlass_hopper.py -d bfloat16 --no-cache-flush
 
         # Enable adaptive iterations with custom target time (2 seconds per config)
-        python autotune_cutlass_hopper.py -d float16 --adaptive-iters --target-time 2000
+        python autotune_cutlass_hopper.py -d bfloat16 --adaptive-iters --target-time 2000
 
         # Load cached results
-        python autotune_cutlass_hopper.py -d float16 --load-cache
+        python autotune_cutlass_hopper.py -d bfloat16 --load-cache
     """
     # Create output directory
     output_dir = Path(__file__).parent / "autotune_results"
