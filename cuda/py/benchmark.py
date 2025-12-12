@@ -326,8 +326,15 @@ def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Ten
 
 
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """PyTorch reference implementation."""
-    return torch.matmul(a, b)
+    """PyTorch reference implementation.
+
+    Preallocates output tensor to match the behavior of custom CUTLASS kernels
+    for fair performance comparison.
+    """
+    # Preallocate output tensor (same dtype as input)
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
+    torch.matmul(a, b, out=c)
+    return c
 
 
 def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100, flush_cache=True):
@@ -1045,46 +1052,51 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                 ]
             )
         elif dtype == "bfloat16":
-            all_kernels.extend(
-                [
-                    (
-                        "tensorcore_naive_bf16",
-                        "CUDA Tensor Core Naive (BF16)",
-                        cuda_tensorcore_naive_bf16_gemm,
-                        "🟢",
-                    ),
-                    (
-                        "tensorcore_bf16",
-                        "CUDA Tensor Core Warptiled (BF16)",
-                        cuda_tensorcore_bf16_gemm,
-                        "🚀",
-                    ),
-                    (
-                        "tensorcore_db_bf16",
-                        "CUDA Tensor Core Double Buffered (BF16)",
-                        cuda_tensorcore_db_bf16_gemm,
-                        "🔥",
-                    ),
-                    (
-                        "tensorcore_async_bf16",
-                        "CUDA Tensor Core Async (BF16)",
-                        cuda_tensorcore_async_bf16_gemm,
-                        "💨",
-                    ),
-                    (
-                        "cutlass_bf16",
-                        "CUTLASS (BF16)",
-                        cuda_cutlass_bf16_gemm,
-                        "⚡",
-                    ),
+            bf16_kernels = [
+                (
+                    "tensorcore_naive_bf16",
+                    "CUDA Tensor Core Naive (BF16)",
+                    cuda_tensorcore_naive_bf16_gemm,
+                    "🟢",
+                ),
+                (
+                    "tensorcore_bf16",
+                    "CUDA Tensor Core Warptiled (BF16)",
+                    cuda_tensorcore_bf16_gemm,
+                    "🚀",
+                ),
+                (
+                    "tensorcore_db_bf16",
+                    "CUDA Tensor Core Double Buffered (BF16)",
+                    cuda_tensorcore_db_bf16_gemm,
+                    "🔥",
+                ),
+                (
+                    "tensorcore_async_bf16",
+                    "CUDA Tensor Core Async (BF16)",
+                    cuda_tensorcore_async_bf16_gemm,
+                    "💨",
+                ),
+                (
+                    "cutlass_bf16",
+                    "CUTLASS (BF16)",
+                    cuda_cutlass_bf16_gemm,
+                    "⚡",
+                ),
+            ]
+
+            # Only add Hopper kernel if it's available (requires SM90+)
+            if hasattr(cuda_kernels, "sgemm_cutlass_hopper_bf16"):
+                bf16_kernels.append(
                     (
                         "cutlass_hopper_bf16",
                         "CUTLASS Hopper (BF16)",
                         cuda_cutlass_hopper_bf16_gemm,
                         "🔮",
-                    ),
-                ]
-            )
+                    )
+                )
+
+            all_kernels.extend(bf16_kernels)
 
         # Filter kernels based on user selection
         kernels = [
@@ -1092,6 +1104,19 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             for kernel_id, display_name, kernel_fn, emoji in all_kernels
             if kernel_id in kernels_to_run
         ]
+
+        # Warn if user requested kernels that are not available
+        available_kernel_ids = {kernel_id for kernel_id, _, _, _ in all_kernels}
+        unavailable_kernels = set(kernels_to_run) - available_kernel_ids
+        if unavailable_kernels:
+            for kernel_id in unavailable_kernels:
+                if kernel_id == "cutlass_hopper_bf16":
+                    logger.warning(
+                        f"⚠️  Skipping {kernel_id}: Requires Hopper GPU (SM90+). "
+                        f"Your GPU: {torch.cuda.get_device_name(0)}"
+                    )
+                else:
+                    logger.warning(f"⚠️  Skipping {kernel_id}: Not available for this configuration")
 
         size_results = {}
 
@@ -1305,16 +1330,18 @@ def main(kernels, dtype):
                 ]
             )
         elif dtype == "bfloat16":
-            kernels_to_run.extend(
-                [
-                    "tensorcore_naive_bf16",
-                    "tensorcore_bf16",
-                    "tensorcore_db_bf16",
-                    "tensorcore_async_bf16",
-                    "cutlass_bf16",
-                    "cutlass_hopper_bf16",
-                ]
-            )
+            bf16_kernels_list = [
+                "tensorcore_naive_bf16",
+                "tensorcore_bf16",
+                "tensorcore_db_bf16",
+                "tensorcore_async_bf16",
+                "cutlass_bf16",
+            ]
+            # Only add Hopper kernel if it's available (requires SM90+)
+            if hasattr(cuda_kernels, "sgemm_cutlass_hopper_bf16"):
+                bf16_kernels_list.append("cutlass_hopper_bf16")
+
+            kernels_to_run.extend(bf16_kernels_list)
     else:
         kernels_to_run = list(kernels)
 
