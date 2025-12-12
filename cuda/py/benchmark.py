@@ -40,8 +40,7 @@ Available kernels:
     - tensorcore_async_bf16: CUDA Tensor Core with async pipeline (BF16)
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs (requires -d float16)
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs (requires -d bfloat16)
-    - cutlass_hopper_fp16: CUTLASS Hopper GEMM with FP16 (SM90+, requires -d float16)
-    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, requires -d bfloat16)
+    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, requires -d bfloat16, FP16 not supported)
 
 Note: When using -d float16 or -d bfloat16 without specifying kernels, FP32-only
 kernels are automatically filtered out. If you explicitly request FP32-only kernels
@@ -312,18 +311,6 @@ def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_fp32(a, b, c, 1.0, 0.0)  # type: ignore
     return c
-
-
-def cuda_cutlass_hopper_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper for CUTLASS Hopper GEMM kernel with FP16 inputs.
-
-    Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
-    """
-    # CUTLASS Hopper outputs FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_cutlass_hopper_fp16(a, b, c_fp32)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
 
 
 def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -1055,12 +1042,6 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         cuda_cutlass_fp16_gemm,
                         "⚡",
                     ),
-                    (
-                        "cutlass_hopper_fp16",
-                        "CUTLASS Hopper (FP16)",
-                        cuda_cutlass_hopper_fp16_gemm,
-                        "🔮",
-                    ),
                 ]
             )
         elif dtype == "bfloat16":
@@ -1257,7 +1238,6 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             "cutlass_fp16",
             "cutlass_bf16",
             "cutlass_fp32",
-            "cutlass_hopper_fp16",
             "cutlass_hopper_bf16",
         ],
         case_sensitive=False,
@@ -1322,7 +1302,6 @@ def main(kernels, dtype):
                     "tensorcore_db_fp16",
                     "tensorcore_async_fp16",
                     "cutlass_fp16",
-                    "cutlass_hopper_fp16",
                 ]
             )
         elif dtype == "bfloat16":

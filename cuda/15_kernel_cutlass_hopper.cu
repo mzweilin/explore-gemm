@@ -24,8 +24,8 @@ struct CutlassHopperGemmConfig
     // Element types
     using ElementA = ElementType;
     using ElementB = ElementType;
-    using ElementC = ElementType;  // ✅ Changed from bfloat16_t
-    using ElementD = ElementType;  // ✅ Changed from bfloat16_t
+    using ElementC = ElementType;
+    using ElementD = ElementType;
     using ElementAccumulator = float;
 
     // Layouts
@@ -41,8 +41,12 @@ struct CutlassHopperGemmConfig
     static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
 
     // Tile and cluster configuration for H100
-    using TileShape = Shape<_128, _128, _64>; // CTA tile (M, N, K)
-    using ClusterShape = Shape<_1, _2, _1>;   // Thread block cluster
+    static constexpr int TileM = 128;
+    static constexpr int TileN = 128;
+    static constexpr int TileK = 64;
+
+    using TileShape = Shape<cute::Int<TileM>, cute::Int<TileN>, cute::Int<TileK>>; // CTA tile (M, N, K)
+    using ClusterShape = Shape<_1, _1, _1>;                                        // Thread block cluster
 
     // 1. TMA Warp Specialized
     // using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
@@ -62,7 +66,7 @@ struct CutlassHopperGemmConfig
         cutlass::gemm::KernelTmaWarpSpecialized,
         cutlass::gemm::KernelTmaWarpSpecializedPingpong>::type;
     using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
-    using TileSchedulerType = void;
+    using TileSchedulerType = cutlass::gemm::PersistentScheduler;
 
     // Build mainloop collective with automatic stage count calculation
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -73,7 +77,7 @@ struct CutlassHopperGemmConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        cutlass::gemm::collective::StageCountAuto, // or cutlass::gemm::collective::StageCount<N>,
+        cutlass::gemm::collective::StageCount<5>, // or cutlass::gemm::collective::StageCount<N>,
         KernelSchedule>::CollectiveOp;
 
     // Build epilogue collective
@@ -91,10 +95,10 @@ struct CutlassHopperGemmConfig
 
     // Assemble the kernel (using non-batched shape)
     // 1. TMA Warp Specialized
-    using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-        Shape<int, int, int>,
-        CollectiveMainloop,
-        CollectiveEpilogue>;
+    // using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+    //     Shape<int, int, int>,
+    //     CollectiveMainloop,
+    //     CollectiveEpilogue>;
 
     // 2. TMA Warp Specialized Persistent Collective
     using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
@@ -106,8 +110,7 @@ struct CutlassHopperGemmConfig
     using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
 
-// Type aliases for FP16 and BF16
-using FP16HopperConfig = CutlassHopperGemmConfig<half_t>;
+// Type alias for BF16
 using BF16HopperConfig = CutlassHopperGemmConfig<bfloat16_t>;
 
 template <typename Config>
@@ -250,15 +253,6 @@ void cutlass_hopper_gemm_pytorch_wrapper(
 
     TORCH_CHECK(err == cudaSuccess,
                 "CUTLASS Hopper GEMM (", dtype_name, ") failed: ", cudaGetErrorString(err));
-}
-
-// FP16 launcher
-void sgemm_cutlass_hopper_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                               torch::Tensor &output_matrix)
-{
-    cutlass_hopper_gemm_pytorch_wrapper<FP16HopperConfig, at::Half>(
-        matrix_a, matrix_b, output_matrix,
-        "float16", at::kHalf);
 }
 
 // BF16 launcher

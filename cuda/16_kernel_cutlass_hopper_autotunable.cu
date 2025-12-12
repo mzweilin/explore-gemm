@@ -30,8 +30,8 @@ struct CutlassHopperGemmAutotuneConfig
     // Element types
     using ElementA = ElementType;
     using ElementB = ElementType;
-    using ElementC = float;
-    using ElementD = float;
+    using ElementC = ElementType;
+    using ElementD = ElementType;
     using ElementAccumulator = float;
 
     // Layouts
@@ -239,16 +239,11 @@ cudaError_t dispatch_hopper_config(
     int M, int N, int K,
     const CutlassType *d_A, int lda,
     const CutlassType *d_B, int ldb,
-    float *d_D, int ldd,
+    CutlassType *d_D, int ldd,
     cudaStream_t stream)
 {
-    using FP16Cfg = typename GetHopperConfig<IDX, cutlass::half_t>::type;
     using BF16Cfg = typename GetHopperConfig<IDX, cutlass::bfloat16_t>::type;
-
-    if constexpr (std::is_same_v<CutlassType, cutlass::half_t>)
-        return cutlass_hopper_gemm_autotune_launch<FP16Cfg>(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
-    else
-        return cutlass_hopper_gemm_autotune_launch<BF16Cfg>(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
+    return cutlass_hopper_gemm_autotune_launch<BF16Cfg>(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
 }
 
 template <typename TorchType, typename CutlassType>
@@ -257,7 +252,7 @@ cudaError_t dispatch_cutlass_hopper_autotune(
     const int M, const int N, const int K,
     const CutlassType *d_A, int lda,
     const CutlassType *d_B, int ldb,
-    float *d_D, int ldd,
+    CutlassType *d_D, int ldd,
     cudaStream_t stream = nullptr)
 {
     auto launch = [&](auto I)
@@ -312,7 +307,7 @@ void cutlass_hopper_gemm_autotune_pytorch_wrapper(
 
     TORCH_CHECK(matrix_a.scalar_type() == expected_type, "Matrix A must be ", dtype_name);
     TORCH_CHECK(matrix_b.scalar_type() == expected_type, "Matrix B must be ", dtype_name);
-    TORCH_CHECK(output_matrix.scalar_type() == at::kFloat, "Output matrix must be float32");
+    TORCH_CHECK(output_matrix.scalar_type() == expected_type, "Output matrix must be ", dtype_name);
 
     TORCH_CHECK(matrix_a.dim() == 2 && matrix_b.dim() == 2, "A and B must be 2D tensors");
     TORCH_CHECK(matrix_a.is_contiguous() && matrix_b.is_contiguous(),
@@ -338,7 +333,7 @@ void cutlass_hopper_gemm_autotune_pytorch_wrapper(
     // Get device pointers
     const auto *d_A = reinterpret_cast<const CutlassType *>(matrix_a.data_ptr<TorchType>());
     const auto *d_B = reinterpret_cast<const CutlassType *>(matrix_b.data_ptr<TorchType>());
-    auto *d_D = output_matrix.data_ptr<float>();
+    auto *d_D = reinterpret_cast<CutlassType *>(output_matrix.data_ptr<TorchType>());
 
     int lda = K;
     int ldb = N;
@@ -352,18 +347,6 @@ void cutlass_hopper_gemm_autotune_pytorch_wrapper(
 
     TORCH_CHECK(err == cudaSuccess,
                 "CUTLASS Hopper GEMM Autotune (", dtype_name, ", config ", config_id, ") failed: ", cudaGetErrorString(err));
-}
-
-// FP16 launcher
-void sgemm_cutlass_hopper_autotune_fp16(
-    const int config_id,
-    const torch::Tensor &matrix_a,
-    const torch::Tensor &matrix_b,
-    torch::Tensor &output_matrix)
-{
-    cutlass_hopper_gemm_autotune_pytorch_wrapper<at::Half, cutlass::half_t>(
-        config_id, matrix_a, matrix_b, output_matrix,
-        "float16", at::kHalf);
 }
 
 // BF16 launcher
