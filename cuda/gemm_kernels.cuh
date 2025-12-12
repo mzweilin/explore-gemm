@@ -109,12 +109,41 @@ void sgemm_cutlass_autotune_bf16(int config_id, const torch::Tensor &matrix_a, c
 int get_num_cutlass_configs();
 
 // SGEMM with CUTLASS library - Hopper architecture (SM90) with Collective Builder API
-// Input: BF16 only (FP16 not supported), Output: FP32
+// Input: BF16 only (FP16 not supported), Output: BF16
 // Uses CUTLASS 3.x Collective Builder API optimized for H100 GPUs
 // Requires Hopper architecture (SM 9.0+) with TMA (Tensor Memory Accelerator) support
 // Note: alpha=1.0, beta=0.0 are hard-coded
+
+// Default variant (backward compatibility) - uses Pingpong with constant stage count
 void sgemm_cutlass_hopper_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                 torch::Tensor &output_matrix);
+
+// TMA Warp Specialized variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
+
+// TMA Warp Specialized Persistent variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
+
+// TMA Warp Specialized Pingpong variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
 
 // SGEMM with CUTLASS library - Hopper architecture (SM90) Autotunable version
 // Input: BF16 only (FP16 not supported), Output: FP32

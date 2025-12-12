@@ -18,7 +18,96 @@ using namespace cute;
 // Hopper (SM90) Warp-Specialized GEMM using CUTLASS 3.x Collective Builder API
 // Demonstrates TMA (Tensor Memory Accelerator) with warp specialization
 
-template <typename ElementType>
+// Enum to select different Hopper kernel schedules
+enum class HopperKernelType
+{
+    TmaWarpSpecialized,           // Basic TMA with warp specialization
+    TmaWarpSpecializedPersistent, // TMA with persistent scheduling
+    TmaWarpSpecializedPingpong    // TMA with ping-pong cooperative scheduling
+};
+
+// Enum to select stage count strategy
+enum class StageCountType
+{
+    Auto,    // Automatic stage count calculation
+    Constant // Fixed stage count (5)
+};
+
+// Helper function to get kernel schedule type
+template <HopperKernelType KernelType, int TileM>
+constexpr auto get_kernel_schedule()
+{
+    if constexpr (KernelType == HopperKernelType::TmaWarpSpecialized)
+    {
+        return cutlass::gemm::KernelTmaWarpSpecialized{};
+    }
+    else if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPersistent)
+    {
+        if constexpr (TileM < 128)
+        {
+            return cutlass::gemm::KernelTmaWarpSpecialized{};
+        }
+        else
+        {
+            return cutlass::gemm::KernelTmaWarpSpecializedCooperative{};
+        }
+    }
+    else // TmaWarpSpecializedPingpong
+    {
+        if constexpr (TileM < 128)
+        {
+            return cutlass::gemm::KernelTmaWarpSpecialized{};
+        }
+        else
+        {
+            return cutlass::gemm::KernelTmaWarpSpecializedPingpong{};
+        }
+    }
+}
+
+// Helper function to get epilogue schedule type
+template <HopperKernelType KernelType>
+constexpr auto get_epilogue_schedule()
+{
+    if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPersistent)
+    {
+        return cutlass::epilogue::TmaWarpSpecializedCooperative{};
+    }
+    else
+    {
+        return cutlass::epilogue::TmaWarpSpecialized{};
+    }
+}
+
+// Helper function to get tile scheduler type
+template <HopperKernelType KernelType>
+constexpr auto get_tile_scheduler()
+{
+    if constexpr (KernelType == HopperKernelType::TmaWarpSpecialized)
+    {
+        return; // void - no tile scheduler
+    }
+    else
+    {
+        return cutlass::gemm::PersistentScheduler{};
+    }
+}
+
+// Helper function to get stage count type
+template <StageCountType StageType, typename ElementA, int Stages = 5>
+constexpr auto get_stage_count()
+{
+    if constexpr (StageType == StageCountType::Auto)
+    {
+        return cutlass::gemm::collective::StageCountAutoCarveout<sizeof(ElementA)>{};
+    }
+    else
+    {
+        return cutlass::gemm::collective::StageCount<Stages>{};
+    }
+}
+
+template <typename ElementType, HopperKernelType KernelType, StageCountType StageType>
 struct CutlassHopperGemmConfig
 {
     // Element types
@@ -48,27 +137,13 @@ struct CutlassHopperGemmConfig
     using TileShape = Shape<cute::Int<TileM>, cute::Int<TileN>, cute::Int<TileK>>; // CTA tile (M, N, K)
     using ClusterShape = Shape<_1, _1, _1>;                                        // Thread block cluster
 
-    // 1. TMA Warp Specialized
-    // using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
-    // using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+    // Select kernel schedule, epilogue schedule, tile scheduler, and stage count using constexpr if
+    using KernelSchedule = decltype(get_kernel_schedule<KernelType, TileM>());
+    using EpilogueSchedule = decltype(get_epilogue_schedule<KernelType>());
+    using TileSchedulerType = decltype(get_tile_scheduler<KernelType>());
+    using StageCount = decltype(get_stage_count<StageType, ElementA>());
 
-    // 2. TMA Warp Specialized Persistent Collective
-    // using KernelSchedule = typename std::conditional<
-    //     (TileM < 128),
-    //     cutlass::gemm::KernelTmaWarpSpecialized,
-    //     cutlass::gemm::KernelTmaWarpSpecializedCooperative>::type;
-    // using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
-    // using TileSchedulerType = cutlass::gemm::PersistentScheduler;
-
-    // 3. TMA Warp Specialized Cooperative Ping Pong
-    using KernelSchedule = typename std::conditional<
-        (TileM < 128),
-        cutlass::gemm::KernelTmaWarpSpecialized,
-        cutlass::gemm::KernelTmaWarpSpecializedPingpong>::type;
-    using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
-    using TileSchedulerType = cutlass::gemm::PersistentScheduler;
-
-    // Build mainloop collective with automatic stage count calculation
+    // Build mainloop collective
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
         cutlass::arch::Sm90,
         cutlass::arch::OpClassTensorOp,
@@ -77,7 +152,7 @@ struct CutlassHopperGemmConfig
         ElementAccumulator,
         TileShape,
         ClusterShape,
-        cutlass::gemm::collective::StageCount<5>, // or cutlass::gemm::collective::StageCount<N>,
+        StageCount,
         KernelSchedule>::CollectiveOp;
 
     // Build epilogue collective
@@ -93,25 +168,62 @@ struct CutlassHopperGemmConfig
         ElementD, LayoutD, AlignmentD,
         EpilogueSchedule>::CollectiveOp;
 
-    // Assemble the kernel (using non-batched shape)
-    // 1. TMA Warp Specialized
-    // using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-    //     Shape<int, int, int>,
-    //     CollectiveMainloop,
-    //     CollectiveEpilogue>;
+    // Helper to create the appropriate GemmKernel type
+    template <typename Scheduler>
+    static auto make_gemm_kernel_type()
+    {
+        if constexpr (std::is_void_v<Scheduler>)
+        {
+            return cutlass::gemm::kernel::GemmUniversal<
+                Shape<int, int, int>,
+                CollectiveMainloop,
+                CollectiveEpilogue>{};
+        }
+        else
+        {
+            return cutlass::gemm::kernel::GemmUniversal<
+                Shape<int, int, int>,
+                CollectiveMainloop,
+                CollectiveEpilogue,
+                Scheduler>{};
+        }
+    }
 
-    // 2. TMA Warp Specialized Persistent Collective
-    using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-        Shape<int, int, int>,
-        CollectiveMainloop,
-        CollectiveEpilogue,
-        TileSchedulerType>;
+    // Assemble the kernel - different signature based on whether we have a tile scheduler
+    using GemmKernel = decltype(make_gemm_kernel_type<TileSchedulerType>());
 
     using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
 
-// Type alias for BF16
-using BF16HopperConfig = CutlassHopperGemmConfig<bfloat16_t>;
+// Type aliases for different kernel configurations
+// TMA Warp Specialized variants
+template <typename ElementType>
+using TmaWarpSpecializedAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecialized, StageCountType::Auto>;
+
+template <typename ElementType>
+using TmaWarpSpecializedConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecialized, StageCountType::Constant>;
+
+// TMA Warp Specialized Persistent variants
+template <typename ElementType>
+using TmaWarpSpecializedPersistentAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPersistent, StageCountType::Auto>;
+
+template <typename ElementType>
+using TmaWarpSpecializedPersistentConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPersistent, StageCountType::Constant>;
+
+// TMA Warp Specialized Pingpong variants
+template <typename ElementType>
+using TmaWarpSpecializedPingpongAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPingpong, StageCountType::Auto>;
+
+template <typename ElementType>
+using TmaWarpSpecializedPingpongConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPingpong, StageCountType::Constant>;
+
+// BF16 type aliases for all 6 variants
+using BF16HopperTmaWarpSpecializedAuto = TmaWarpSpecializedAutoConfig<bfloat16_t>;
+using BF16HopperTmaWarpSpecializedConstant = TmaWarpSpecializedConstantConfig<bfloat16_t>;
+using BF16HopperTmaWarpSpecializedPersistentAuto = TmaWarpSpecializedPersistentAutoConfig<bfloat16_t>;
+using BF16HopperTmaWarpSpecializedPersistentConstant = TmaWarpSpecializedPersistentConstantConfig<bfloat16_t>;
+using BF16HopperTmaWarpSpecializedPingpongAuto = TmaWarpSpecializedPingpongAutoConfig<bfloat16_t>;
+using BF16HopperTmaWarpSpecializedPingpongConstant = TmaWarpSpecializedPingpongConstantConfig<bfloat16_t>;
 
 template <typename Config>
 cudaError_t cutlass_hopper_gemm_launch(
@@ -255,11 +367,74 @@ void cutlass_hopper_gemm_pytorch_wrapper(
                 "CUTLASS Hopper GEMM (", dtype_name, ") failed: ", cudaGetErrorString(err));
 }
 
-// BF16 launcher
-void sgemm_cutlass_hopper_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                               torch::Tensor &output_matrix)
+// BF16 launchers - TMA Warp Specialized variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
 {
-    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperConfig, at::BFloat16>(
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedAuto, at::BFloat16>(
         matrix_a, matrix_b, output_matrix,
         "bfloat16", at::kBFloat16);
+}
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedConstant, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix,
+        "bfloat16", at::kBFloat16);
+}
+
+// BF16 launchers - TMA Warp Specialized Persistent variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedPersistentAuto, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix,
+        "bfloat16", at::kBFloat16);
+}
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedPersistentConstant, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix,
+        "bfloat16", at::kBFloat16);
+}
+
+// BF16 launchers - TMA Warp Specialized Pingpong variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedPingpongAuto, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix,
+        "bfloat16", at::kBFloat16);
+}
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedPingpongConstant, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix,
+        "bfloat16", at::kBFloat16);
+}
+
+// Backward compatibility: default to pingpong variant with constant stage count
+void sgemm_cutlass_hopper_bf16(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(matrix_a, matrix_b, output_matrix);
 }
