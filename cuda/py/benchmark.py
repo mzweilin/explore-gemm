@@ -314,14 +314,55 @@ def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper for CUTLASS Hopper GEMM kernel with BF16 inputs.
+    """Wrapper for CUTLASS Hopper GEMM kernel with BF16 inputs (default variant).
 
     Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
+    Default: Pingpong with constant stage count.
     """
-    # CUTLASS Hopper outputs FP32 for precision
     c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized with Auto stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized with Constant stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Persistent with Auto stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Persistent with Constant stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Pingpong with Auto stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Pingpong with Constant stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(a, b, c)  # type: ignore
     return c
 
 
@@ -1085,16 +1126,53 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                 ),
             ]
 
-            # Only add Hopper kernel if it's available (requires SM90+)
+            # Only add Hopper kernels if they're available (requires SM90+)
             if hasattr(cuda_kernels, "sgemm_cutlass_hopper_bf16"):
-                bf16_kernels.append(
+                hopper_kernels = [
                     (
                         "cutlass_hopper_bf16",
-                        "CUTLASS Hopper (BF16)",
+                        "CUTLASS Hopper (BF16) [Default]",
                         cuda_cutlass_hopper_bf16_gemm,
                         "🔮",
-                    )
-                )
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_auto",
+                        "CUTLASS Hopper TMA WarpSpec Auto",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_auto_gemm,
+                        "🌀",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_constant",
+                        "CUTLASS Hopper TMA WarpSpec Const",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_constant_gemm,
+                        "🌀",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_persistent_auto",
+                        "CUTLASS Hopper TMA Persistent Auto",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto_gemm,
+                        "🔄",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+                        "CUTLASS Hopper TMA Persistent Const",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm,
+                        "🔄",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto",
+                        "CUTLASS Hopper TMA Pingpong Auto",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto_gemm,
+                        "🏓",
+                    ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+                        "CUTLASS Hopper TMA Pingpong Const",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm,
+                        "🏓",
+                    ),
+                ]
+                bf16_kernels.extend(hopper_kernels)
 
             all_kernels.extend(bf16_kernels)
 
@@ -1110,7 +1188,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
         unavailable_kernels = set(kernels_to_run) - available_kernel_ids
         if unavailable_kernels:
             for kernel_id in unavailable_kernels:
-                if kernel_id == "cutlass_hopper_bf16":
+                if kernel_id.startswith("cutlass_hopper_"):
                     logger.warning(
                         f"⚠️  Skipping {kernel_id}: Requires Hopper GPU (SM90+). "
                         f"Your GPU: {torch.cuda.get_device_name(0)}"
@@ -1337,9 +1415,17 @@ def main(kernels, dtype):
                 "tensorcore_async_bf16",
                 "cutlass_bf16",
             ]
-            # Only add Hopper kernel if it's available (requires SM90+)
+            # Only add Hopper kernels if they're available (requires SM90+)
             if hasattr(cuda_kernels, "sgemm_cutlass_hopper_bf16"):
-                bf16_kernels_list.append("cutlass_hopper_bf16")
+                bf16_kernels_list.extend([
+                    "cutlass_hopper_bf16",
+                    "cutlass_hopper_bf16_tma_warp_specialized_auto",
+                    "cutlass_hopper_bf16_tma_warp_specialized_constant",
+                    "cutlass_hopper_bf16_tma_warp_specialized_persistent_auto",
+                    "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+                    "cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto",
+                    "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+                ])
 
             kernels_to_run.extend(bf16_kernels_list)
     else:
