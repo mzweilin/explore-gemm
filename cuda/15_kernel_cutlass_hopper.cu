@@ -23,7 +23,8 @@ enum class HopperKernelType
 {
     TmaWarpSpecialized,           // Basic TMA with warp specialization
     TmaWarpSpecializedPersistent, // TMA with persistent scheduling
-    TmaWarpSpecializedPingpong    // TMA with ping-pong cooperative scheduling
+    TmaWarpSpecializedPingpong,   // TMA with ping-pong cooperative scheduling
+    TmaWarpSpecializedStreamK     // TMA with Stream K scheduling
 };
 
 // Enum to select stage count strategy
@@ -52,7 +53,7 @@ constexpr auto get_kernel_schedule()
             return cutlass::gemm::KernelTmaWarpSpecializedCooperative{};
         }
     }
-    else // TmaWarpSpecializedPingpong
+    else if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPingpong)
     {
         if constexpr (TileM < 128)
         {
@@ -63,6 +64,17 @@ constexpr auto get_kernel_schedule()
             return cutlass::gemm::KernelTmaWarpSpecializedPingpong{};
         }
     }
+    else // TmaWarpSpecializedStreamK
+    {
+        if constexpr (TileM < 128)
+        {
+            return cutlass::gemm::KernelTmaWarpSpecialized{};
+        }
+        else
+        {
+            return cutlass::gemm::KernelTmaWarpSpecializedCooperative{};
+        }
+    }
 }
 
 // Helper function to get epilogue schedule type
@@ -70,6 +82,10 @@ template <HopperKernelType KernelType>
 constexpr auto get_epilogue_schedule()
 {
     if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPersistent)
+    {
+        return cutlass::epilogue::TmaWarpSpecializedCooperative{};
+    }
+    else if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedStreamK)
     {
         return cutlass::epilogue::TmaWarpSpecializedCooperative{};
     }
@@ -87,6 +103,10 @@ constexpr auto get_tile_scheduler()
     {
         return; // void - no tile scheduler
     }
+    else if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedStreamK)
+    {
+        return cutlass::gemm::StreamKScheduler{};
+    }
     else
     {
         return cutlass::gemm::PersistentScheduler{};
@@ -94,7 +114,7 @@ constexpr auto get_tile_scheduler()
 }
 
 // Helper function to get stage count type
-template <StageCountType StageType, typename ElementA, int Stages = 5>
+template <StageCountType StageType, typename ElementA, int Stages = 3>
 constexpr auto get_stage_count()
 {
     if constexpr (StageType == StageCountType::Auto)
@@ -131,11 +151,11 @@ struct CutlassHopperGemmConfig
 
     // Tile and cluster configuration for H100
     static constexpr int TileM = 128;
-    static constexpr int TileN = 128;
+    static constexpr int TileN = 256;
     static constexpr int TileK = 64;
 
     using TileShape = Shape<cute::Int<TileM>, cute::Int<TileN>, cute::Int<TileK>>; // CTA tile (M, N, K)
-    using ClusterShape = Shape<_1, _1, _1>;                                        // Thread block cluster
+    using ClusterShape = Shape<_2, _1, _1>;
 
     // Select kernel schedule, epilogue schedule, tile scheduler, and stage count using constexpr if
     using KernelSchedule = decltype(get_kernel_schedule<KernelType, TileM>());
@@ -217,13 +237,22 @@ using TmaWarpSpecializedPingpongAutoConfig = CutlassHopperGemmConfig<ElementType
 template <typename ElementType>
 using TmaWarpSpecializedPingpongConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPingpong, StageCountType::Constant>;
 
-// BF16 type aliases for all 6 variants
+// TMA Warp Specialized Stream-K variants
+template <typename ElementType>
+using TmaWarpSpecializedStreamKAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedStreamK, StageCountType::Auto>;
+
+template <typename ElementType>
+using TmaWarpSpecializedStreamKConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedStreamK, StageCountType::Constant>;
+
+// BF16 type aliases for all 8 variants
 using BF16HopperTmaWarpSpecializedAuto = TmaWarpSpecializedAutoConfig<bfloat16_t>;
 using BF16HopperTmaWarpSpecializedConstant = TmaWarpSpecializedConstantConfig<bfloat16_t>;
 using BF16HopperTmaWarpSpecializedPersistentAuto = TmaWarpSpecializedPersistentAutoConfig<bfloat16_t>;
 using BF16HopperTmaWarpSpecializedPersistentConstant = TmaWarpSpecializedPersistentConstantConfig<bfloat16_t>;
 using BF16HopperTmaWarpSpecializedPingpongAuto = TmaWarpSpecializedPingpongAutoConfig<bfloat16_t>;
 using BF16HopperTmaWarpSpecializedPingpongConstant = TmaWarpSpecializedPingpongConstantConfig<bfloat16_t>;
+using BF16HopperTmaWarpSpecializedStreamKAuto = TmaWarpSpecializedStreamKAutoConfig<bfloat16_t>;
+using BF16HopperTmaWarpSpecializedStreamKConstant = TmaWarpSpecializedStreamKConstantConfig<bfloat16_t>;
 
 template <typename Config>
 cudaError_t cutlass_hopper_gemm_launch(
@@ -436,6 +465,27 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(
     torch::Tensor &output_matrix)
 {
     cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedPingpongConstant, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix,
+        "bfloat16", at::kBFloat16);
+}
+
+// BF16 launchers - TMA Warp Specialized Stream-K variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_auto(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedStreamKAuto, at::BFloat16>(
+        matrix_a, matrix_b, output_matrix,
+        "bfloat16", at::kBFloat16);
+}
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix)
+{
+    cutlass_hopper_gemm_pytorch_wrapper<BF16HopperTmaWarpSpecializedStreamKConstant, at::BFloat16>(
         matrix_a, matrix_b, output_matrix,
         "bfloat16", at::kBFloat16);
 }

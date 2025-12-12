@@ -352,6 +352,20 @@ def cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm(a: torc
     return c
 
 
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_streamk_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Stream-K with Auto stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_auto(a, b, c)  # type: ignore
+    return c
+
+
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CUTLASS Hopper: TMA Warp Specialized Stream-K with Constant stage count."""
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(a, b, c)  # type: ignore
+    return c
+
+
 def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """PyTorch reference implementation.
 
@@ -1145,6 +1159,12 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm,
                         "🏓",
                     ),
+                    (
+                        "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant",
+                        "CUTLASS Hopper TMA Stream-K Const",
+                        cuda_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant_gemm,
+                        "🌊",
+                    ),
                 ]
                 bf16_kernels.extend(hopper_kernels)
 
@@ -1463,6 +1483,7 @@ def main(kernels, dtype):
                     "cutlass_hopper_bf16_tma_warp_specialized_constant",
                     "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
                     "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+                    "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant",
                 ])
 
             kernels_to_run.extend(bf16_kernels_list)

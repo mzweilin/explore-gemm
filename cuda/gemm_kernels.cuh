@@ -145,6 +145,15 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(
     const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix);
 
+// TMA Warp Specialized Stream-K variants
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_auto(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
+
+void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(
+    const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
+
 // SGEMM with CUTLASS library - Hopper architecture (SM90) Autotunable version
 // Input: BF16 only (FP16 not supported), Output: FP32
 // Uses CUTLASS 3.x Collective Builder API with configurable tile and cluster shapes
