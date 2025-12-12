@@ -389,6 +389,7 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant(
 }
 
 // BF16 launchers - TMA Warp Specialized Persistent variants
+// TODO: Fails during runtime - unhelpful error message
 void sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto(
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
@@ -410,6 +411,7 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(
 }
 
 // BF16 launchers - TMA Warp Specialized Pingpong variants
+// TODO: Fails during runtime - unhelpful error message
 void sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto(
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,

@@ -338,24 +338,10 @@ def cuda_cutlass_hopper_bf16_tma_warp_specialized_constant_gemm(a: torch.Tensor,
     return c
 
 
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """CUTLASS Hopper: TMA Warp Specialized Persistent with Auto stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
-    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto(a, b, c)  # type: ignore
-    return c
-
-
 def cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """CUTLASS Hopper: TMA Warp Specialized Persistent with Constant stage count."""
     c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(a, b, c)  # type: ignore
-    return c
-
-
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """CUTLASS Hopper: TMA Warp Specialized Pingpong with Auto stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
-    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto(a, b, c)  # type: ignore
     return c
 
 
@@ -1148,22 +1134,10 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
                         "🌀",
                     ),
                     (
-                        "cutlass_hopper_bf16_tma_warp_specialized_persistent_auto",
-                        "CUTLASS Hopper TMA Persistent Auto",
-                        cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_auto_gemm,
-                        "🔄",
-                    ),
-                    (
                         "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
                         "CUTLASS Hopper TMA Persistent Const",
                         cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm,
                         "🔄",
-                    ),
-                    (
-                        "cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto",
-                        "CUTLASS Hopper TMA Pingpong Auto",
-                        cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto_gemm,
-                        "🏓",
                     ),
                     (
                         "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
@@ -1288,6 +1262,72 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
 
     # Create results DataFrame
     results_df = pd.DataFrame(all_results)
+
+    # Print summary table
+    if not results_df.empty:
+        logger.info("\n" + "="*130)
+        logger.info("📊 BENCHMARK SUMMARY - All Results Ranked by Performance")
+        logger.info("="*130 + "\n")
+
+        # Sort by size, then by speedup (descending) within each size
+        results_sorted = results_df.sort_values(['size', 'speedup'], ascending=[True, False])
+
+        # Print table header
+        logger.info(f"{'Size':<10} {'Kernel':<45} {'Time (ms)':>12} {'TFLOPS':>10} {'Bandwidth (GB/s)':>18} {'Speedup':>12} {'Rank':>6}")
+        logger.info("-"*130)
+
+        # Group by size and print results
+        current_size = None
+        for _, row in results_sorted.iterrows():
+            size = row['size']
+            kernel = row['kernel']
+
+            # Add separator between different sizes
+            if current_size is not None and current_size != size:
+                logger.info("-"*130)
+            current_size = size
+
+            # Calculate rank within this size group
+            size_group = results_sorted[results_sorted['size'] == size]
+            rank = (size_group['speedup'] > row['speedup']).sum() + 1
+
+            speedup_str = f"{row['speedup']:.2f}×"
+
+            # Emoji based on speedup
+            if abs(row['speedup'] - 1.0) < 0.01:
+                emoji = "🎯"  # PyTorch baseline
+            elif row['speedup'] > 1.0:
+                if rank == 1:
+                    emoji = "🥇"  # Best for this size
+                elif rank == 2:
+                    emoji = "🥈"  # Second best
+                elif rank == 3:
+                    emoji = "🥉"  # Third best
+                else:
+                    emoji = "🏆"  # Faster than baseline
+            else:
+                emoji = "🐢"  # Slower than baseline
+
+            logger.info(
+                f"{size:<10} {kernel:<45} {row['avg_time_ms']:>12.4f} {row['tflops']:>10.2f} {row['bandwidth_gbps']:>18.2f} {speedup_str:>11} {emoji} #{rank}"
+            )
+
+        logger.info("="*130 + "\n")
+
+        # Print overall best performing kernel (averaged across all sizes)
+        overall_summary = results_df.groupby('kernel').agg({
+            'speedup': 'mean',
+            'tflops': 'mean'
+        }).round(4).sort_values('speedup', ascending=False)
+
+        best_kernel = overall_summary.index[0]
+        best_speedup = overall_summary.iloc[0]['speedup']
+        best_tflops = overall_summary.iloc[0]['tflops']
+
+        logger.success(f"🏆 Overall Best Kernel: {best_kernel}")
+        logger.success(f"   Average Speedup: {best_speedup:.2f}× faster than PyTorch")
+        logger.success(f"   Average Performance: {best_tflops:.2f} TFLOPS")
+        logger.info("")
 
     # Create output directory
     output_dir = Path(__file__).parent / "benchmark_results"
@@ -1421,9 +1461,7 @@ def main(kernels, dtype):
                     "cutlass_hopper_bf16",
                     "cutlass_hopper_bf16_tma_warp_specialized_auto",
                     "cutlass_hopper_bf16_tma_warp_specialized_constant",
-                    "cutlass_hopper_bf16_tma_warp_specialized_persistent_auto",
                     "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
-                    "cutlass_hopper_bf16_tma_warp_specialized_pingpong_auto",
                     "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
                 ])
 

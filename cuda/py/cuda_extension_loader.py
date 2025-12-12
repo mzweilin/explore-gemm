@@ -473,6 +473,10 @@ namespace cg = cooperative_groups;
         functions_list.extend(
             [
                 "sgemm_cutlass_hopper_bf16",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+                "sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
             ]
         )
         # Add autotunable Hopper functions if requested
