@@ -254,6 +254,13 @@ using BF16HopperTmaWarpSpecializedPingpongConstant = TmaWarpSpecializedPingpongC
 using BF16HopperTmaWarpSpecializedStreamKAuto = TmaWarpSpecializedStreamKAutoConfig<bfloat16_t>;
 using BF16HopperTmaWarpSpecializedStreamKConstant = TmaWarpSpecializedStreamKConstantConfig<bfloat16_t>;
 
+// Helper to check if scheduler is Stream-K
+template <typename Scheduler>
+struct is_streamk_scheduler : std::false_type {};
+
+template <>
+struct is_streamk_scheduler<cutlass::gemm::StreamKScheduler> : std::true_type {};
+
 template <typename Config>
 cudaError_t cutlass_hopper_gemm_launch(
     int M, int N, int K,
@@ -290,12 +297,59 @@ cudaError_t cutlass_hopper_gemm_launch(
     float alpha = 1.0f;
     float beta = 0.0f;
 
-    typename Config::Gemm::Arguments args{
-        cutlass::gemm::GemmUniversalMode::kGemm,
-        problem_shape,
-        {d_A, stride_A, d_B, stride_B},                // Mainloop args
-        {{alpha, beta}, d_D, stride_C, d_D, stride_D}, // Epilogue args (thread args first, then tensors)
-        hw_info};
+    // Create arguments - different for Stream-K vs other schedulers
+    typename Config::Gemm::Arguments args = [&]() {
+        if constexpr (is_streamk_scheduler<typename Config::TileSchedulerType>::value)
+        {
+            // Stream-K scheduler requires additional arguments
+            using DecompositionMode = typename cutlass::gemm::kernel::detail::PersistentTileSchedulerSm90StreamKParams::DecompositionMode;
+
+            // Stream-K decomposition mode
+            DecompositionMode decomp = DecompositionMode::StreamK;
+
+            // Number of splits (1 for default Stream-K behavior)
+            int splits = 1;
+
+            // Scheduler arguments: splits, swizzle_mode, raster_order, decomposition_mode
+            typename Config::GemmKernel::TileScheduler::Arguments scheduler_args{
+                splits,
+                static_cast<int>(cutlass::gemm::kernel::detail::PersistentTileSchedulerSm90::RasterOrder::AlongN),
+                cutlass::gemm::kernel::detail::PersistentTileSchedulerSm90::RasterOrderOptions::Heuristic,
+                decomp
+            };
+
+            return typename Config::Gemm::Arguments{
+                cutlass::gemm::GemmUniversalMode::kGemm,
+                problem_shape,
+                {d_A, stride_A, d_B, stride_B},                // Mainloop args
+                {{alpha, beta}, d_D, stride_C, d_D, stride_D}, // Epilogue args
+                hw_info,
+                scheduler_args                                  // Stream-K scheduler args
+            };
+        }
+        else if constexpr (std::is_void_v<typename Config::TileSchedulerType>)
+        {
+            // No tile scheduler (basic TMA Warp Specialized)
+            return typename Config::Gemm::Arguments{
+                cutlass::gemm::GemmUniversalMode::kGemm,
+                problem_shape,
+                {d_A, stride_A, d_B, stride_B},                // Mainloop args
+                {{alpha, beta}, d_D, stride_C, d_D, stride_D}, // Epilogue args
+                hw_info
+            };
+        }
+        else
+        {
+            // Persistent scheduler (no additional args needed beyond hw_info)
+            return typename Config::Gemm::Arguments{
+                cutlass::gemm::GemmUniversalMode::kGemm,
+                problem_shape,
+                {d_A, stride_A, d_B, stride_B},                // Mainloop args
+                {{alpha, beta}, d_D, stride_C, d_D, stride_D}, // Epilogue args
+                hw_info
+            };
+        }
+    }();
 
     // Check if the problem size is supported
     cutlass::Status status = gemm_op.can_implement(args);
