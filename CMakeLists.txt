@@ -276,8 +276,38 @@ if(CUTLASS_AVAILABLE)
         target_link_libraries(test_gemm_cutlass_hopper "${TORCH_LIBRARIES}")
         # Hopper GMMA instructions require sm_90a
         set_property(TARGET test_gemm_cutlass_hopper PROPERTY CUDA_ARCHITECTURES 90a)
+
+        # Hopper Benchmark (requires SM90a+ and CUTLASS 3.x)
+        message(STATUS "Building Hopper benchmark for SM90a")
+        add_executable(benchmark_hopper
+            ${CMAKE_SOURCE_DIR}/cuda/scripts/benchmark_hopper.cu)
+        target_link_libraries(benchmark_hopper "${TORCH_LIBRARIES}")
+        # Hopper GMMA instructions require sm_90a
+        set_property(TARGET benchmark_hopper PROPERTY CUDA_ARCHITECTURES 90a)
     else()
         message(STATUS "Skipping CUTLASS Hopper kernel (requires SM90+)")
+    endif()
+
+    # Detect GPU compute capability for Blackwell
+    # Blackwell requires SM100+ (compute capability 10.0+)
+    set(BUILD_BLACKWELL_KERNELS OFF)
+    if(GPU_COMPUTE_CAPABILITY GREATER_EQUAL 100)
+        set(BUILD_BLACKWELL_KERNELS ON)
+        message(STATUS "GPU supports Blackwell (SM100+): Blackwell kernels will be built")
+    else()
+        message(STATUS "GPU compute capability SM${GPU_COMPUTE_CAPABILITY} < SM100: Skipping Blackwell kernels")
+    endif()
+
+    # Blackwell Benchmark (requires SM100+ and CUTLASS 3.x)
+    if(BUILD_BLACKWELL_KERNELS)
+        message(STATUS "Building Blackwell benchmark for SM100")
+        add_executable(benchmark_blackwell
+            ${CMAKE_SOURCE_DIR}/cuda/scripts/benchmark_blackwell.cu)
+        target_link_libraries(benchmark_blackwell "${TORCH_LIBRARIES}")
+        # Blackwell requires sm_100
+        set_property(TARGET benchmark_blackwell PROPERTY CUDA_ARCHITECTURES 100)
+    else()
+        message(STATUS "Skipping Blackwell benchmark (requires SM100+)")
     endif()
 endif()
 
