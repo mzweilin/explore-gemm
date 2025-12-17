@@ -154,31 +154,23 @@ if [ ! -f "$BINARY" ]; then
     exit 1
 fi
 
+# Print header before output redirection (to stderr so it shows on terminal)
+echo -e "${BLUE}========================================${NC}" >&2
+echo -e "${BLUE}CUTLASS GEMM Benchmark Suite${NC}" >&2
+echo -e "${BLUE}========================================${NC}" >&2
+echo "" >&2
+if [ "$AUTO_DETECT" = true ]; then
+    echo -e "${GREEN}GPU Architecture:${NC} $ARCH_NAME (SM$GPU_ARCH)" >&2
+fi
+echo -e "${GREEN}Binary:${NC} $BINARY" >&2
+echo -e "${GREEN}Iterations:${NC} $ITERATIONS" >&2
+echo -e "${GREEN}Mode:${NC} $BENCHMARK_MODE" >&2
+echo -e "${GREEN}Output Format:${NC} $([ "$CSV_MODE" = true ] && echo "CSV" || echo "Human-readable")" >&2
+echo "" >&2
+
 # Setup output redirection
 if [ -n "$OUTPUT_FILE" ]; then
     exec > "$OUTPUT_FILE"
-fi
-
-# Print header
-if [ "$CSV_MODE" = true ]; then
-    # Check if Blackwell benchmark to include additional columns
-    if [[ "$BINARY" == *"blackwell"* ]]; then
-        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,Reduction,PreferredCluster,FallbackCluster,AvgRuntime_ms,GFLOPS,WorktileCount"
-    else
-        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,AvgRuntime_ms,GFLOPS,WorktileCount"
-    fi
-else
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}CUTLASS GEMM Benchmark Suite${NC}"
-    echo -e "${BLUE}========================================${NC}"
-    echo ""
-    if [ "$AUTO_DETECT" = true ]; then
-        echo "GPU Architecture: $ARCH_NAME (SM$GPU_ARCH)"
-    fi
-    echo "Binary: $BINARY"
-    echo "Iterations: $ITERATIONS"
-    echo "Mode: $BENCHMARK_MODE"
-    echo ""
 fi
 
 # Define problem sizes based on mode
@@ -190,24 +182,16 @@ if [ "$BENCHMARK_MODE" = "quick" ]; then
         "4096 4096 4096"
     )
 else
-    # Full mode: comprehensive problem sizes
+    # Full mode: square matrices from 128 to 8192 in powers of 2, plus 6144
     PROBLEM_SIZES=(
-        # Square matrices
+        "128 128 128"
+        "256 256 256"
         "512 512 512"
         "1024 1024 1024"
         "2048 2048 2048"
         "4096 4096 4096"
+        "6144 6144 6144"
         "8192 8192 8192"
-        # Rectangular matrices (M > N)
-        "4096 1024 2048"
-        "8192 2048 4096"
-        # Rectangular matrices (N > M)
-        "1024 4096 2048"
-        "2048 8192 4096"
-        # Different K values
-        "2048 2048 512"
-        "2048 2048 4096"
-        "2048 2048 8192"
     )
 fi
 
@@ -218,20 +202,20 @@ DECOMPOSITIONS=("heuristic" "streamk" "splitk" "dataparallel")
 RASTERS=("H" "N" "M")
 
 # Define swizzle factors
-if [ "$BENCHMARK_MODE" = "quick" ]; then
-    SWIZZLES=(1)
-else
-    SWIZZLES=(1 2 4)
-fi
+SWIZZLES=(1 2 4)
 
 # Define split-K values (only used for splitk decomposition)
 if [ "$BENCHMARK_MODE" = "quick" ]; then
     SPLITS=(2 4)
 else
-    SPLITS=(2 4 8 16)
+    SPLITS=(1 2 3 4)
 fi
 
-# CSV mode arguments
+# CSV mode arguments - default to CSV unless in quick mode
+if [ "$BENCHMARK_MODE" != "quick" ] && [ "$CSV_MODE" = false ]; then
+    CSV_MODE=true
+fi
+
 CSV_ARG=""
 if [ "$CSV_MODE" = true ]; then
     CSV_ARG="--csv"
@@ -248,19 +232,40 @@ for size in "${PROBLEM_SIZES[@]}"; do
             for swizzle in "${SWIZZLES[@]}"; do
                 if [ "$decomp" = "splitk" ]; then
                     for split in "${SPLITS[@]}"; do
-                        ((TOTAL_BENCHMARKS++))
+                        TOTAL_BENCHMARKS=$((TOTAL_BENCHMARKS + 1))
                     done
                 else
-                    ((TOTAL_BENCHMARKS++))
+                    TOTAL_BENCHMARKS=$((TOTAL_BENCHMARKS + 1))
                 fi
             done
         done
     done
 done
 
-if [ "$CSV_MODE" = false ]; then
-    echo -e "${GREEN}Total benchmarks to run: $TOTAL_BENCHMARKS${NC}"
-    echo ""
+# Print benchmark configuration summary (to stderr so it shows on terminal)
+echo -e "${YELLOW}Benchmark Configuration:${NC}" >&2
+echo -e "${YELLOW}  Problem Sizes (M×N×K):${NC}" >&2
+for size in "${PROBLEM_SIZES[@]}"; do
+    echo "    $size" >&2
+done
+echo "" >&2
+echo -e "${YELLOW}  Decomposition Modes:${NC} ${DECOMPOSITIONS[*]}" >&2
+echo -e "${YELLOW}  Rasterization Orders:${NC} ${RASTERS[*]} (H=Heuristic, N=Along N, M=Along M)" >&2
+echo -e "${YELLOW}  Swizzle Factors:${NC} ${SWIZZLES[*]}" >&2
+echo -e "${YELLOW}  Split-K Values:${NC} ${SPLITS[*]} (used only for splitk mode)" >&2
+echo "" >&2
+echo -e "${GREEN}Total benchmarks to run: $TOTAL_BENCHMARKS${NC}" >&2
+echo "" >&2
+
+if [ "$CSV_MODE" = true ]; then
+    echo -e "${BLUE}Starting benchmarks... (CSV output below)${NC}" >&2
+    echo "" >&2
+    # Print CSV header to stdout (goes to file if redirected)
+    if [[ "$BINARY" == *"blackwell"* ]]; then
+        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,Reduction,PreferredCluster,FallbackCluster,AvgRuntime_ms,GFLOPS,WorktileCount"
+    else
+        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,AvgRuntime_ms,GFLOPS,WorktileCount"
+    fi
 fi
 
 # Function to run a single benchmark
@@ -273,9 +278,12 @@ run_benchmark() {
     local swizzle=$6
     local splits=$7
 
-    ((CURRENT_BENCHMARK++))
+    CURRENT_BENCHMARK=$((CURRENT_BENCHMARK + 1))
 
-    if [ "$CSV_MODE" = false ]; then
+    # Print progress to stderr so it doesn't interfere with CSV output
+    if [ "$CSV_MODE" = true ]; then
+        echo -e "${YELLOW}[$CURRENT_BENCHMARK/$TOTAL_BENCHMARKS] Running: M=$m N=$n K=$k decomp=$decomp raster=$raster swizzle=$swizzle splits=$splits${NC}" >&2
+    else
         echo -e "${YELLOW}[$CURRENT_BENCHMARK/$TOTAL_BENCHMARKS] Running: M=$m N=$n K=$k decomp=$decomp raster=$raster swizzle=$swizzle splits=$splits${NC}"
     fi
 
@@ -287,15 +295,30 @@ run_benchmark() {
         CMD="$CMD --splits=$splits"
     fi
 
-    # Run the benchmark
-    if ! $CMD; then
-        if [ "$CSV_MODE" = false ]; then
-            echo -e "${RED}Error running benchmark${NC}"
+    # Run the benchmark and capture output
+    if [ "$CSV_MODE" = true ]; then
+        # In CSV mode, capture the output to parse and display nicely
+        BENCHMARK_OUTPUT=$($CMD 2>&1)
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error running benchmark${NC}" >&2
+            echo "$BENCHMARK_OUTPUT" >&2
+            return 1
         fi
-        return 1
-    fi
 
-    if [ "$CSV_MODE" = false ]; then
+        # Print the raw CSV line to stdout only (for file redirection or piping)
+        echo "$BENCHMARK_OUTPUT"
+
+        # Parse and display nicely on stderr for terminal viewing (without the CSV line)
+        if [[ "$BENCHMARK_OUTPUT" =~ ^[0-9] ]]; then
+            IFS=',' read -r M N K Raster Swizzle Decomp Splits Runtime GFLOPS Worktiles <<< "$BENCHMARK_OUTPUT"
+            echo -e "    ${GREEN}✓${NC} ${BLUE}Runtime:${NC} ${Runtime}ms  ${BLUE}GFLOPS:${NC} ${GFLOPS}  ${BLUE}Worktiles:${NC} ${Worktiles}" >&2
+        fi
+    else
+        # In non-CSV mode, just run normally
+        if ! $CMD; then
+            echo -e "${RED}Error running benchmark${NC}" >&2
+            return 1
+        fi
         echo ""
     fi
 }
@@ -321,10 +344,10 @@ for size in "${PROBLEM_SIZES[@]}"; do
     done
 done
 
-if [ "$CSV_MODE" = false ]; then
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}All benchmarks completed successfully!${NC}"
-    echo -e "${GREEN}========================================${NC}"
-fi
+echo ""
+echo -e "${GREEN}========================================${NC}" >&2
+echo -e "${GREEN}All benchmarks completed successfully!${NC}" >&2
+echo -e "${GREEN}Total benchmarks run: $TOTAL_BENCHMARKS${NC}" >&2
+echo -e "${GREEN}========================================${NC}" >&2
 
 exit 0

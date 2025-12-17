@@ -9,6 +9,18 @@
 #include <unordered_map>
 #include <vector>
 
+
+// Helper for CUTLASS errors
+#define CUTLASS_CHECK(status)                                                                    \
+  {                                                                                              \
+    cutlass::Status error = status;                                                              \
+    if (error != cutlass::Status::kSuccess) {                                                    \
+      std::cerr << "Got cutlass error: " << cutlassGetStatusString(error) << " at: " << __LINE__ \
+                << std::endl;                                                                    \
+      exit(EXIT_FAILURE);                                                                        \
+    }                                                                                            \
+  }
+
 // Helper for CUDA errors
 #define CUDA_CHECK(status)                                              \
   {                                                                     \
