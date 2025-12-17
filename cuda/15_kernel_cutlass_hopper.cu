@@ -38,42 +38,22 @@ enum class StageCountType
 template <HopperKernelType KernelType, int TileM>
 constexpr auto get_kernel_schedule()
 {
-    if constexpr (KernelType == HopperKernelType::TmaWarpSpecialized)
+    // For small tiles (TileM < 128), always use basic TmaWarpSpecialized
+    if constexpr (TileM < 128)
     {
         return cutlass::gemm::KernelTmaWarpSpecialized{};
     }
-    else if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPersistent)
+    else if constexpr (KernelType == HopperKernelType::TmaWarpSpecialized)
     {
-        if constexpr (TileM < 128)
-        {
-            return cutlass::gemm::KernelTmaWarpSpecialized{};
-        }
-        else
-        {
-            return cutlass::gemm::KernelTmaWarpSpecializedCooperative{};
-        }
+        return cutlass::gemm::KernelTmaWarpSpecialized{};
     }
     else if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPingpong)
     {
-        if constexpr (TileM < 128)
-        {
-            return cutlass::gemm::KernelTmaWarpSpecialized{};
-        }
-        else
-        {
-            return cutlass::gemm::KernelTmaWarpSpecializedPingpong{};
-        }
+        return cutlass::gemm::KernelTmaWarpSpecializedPingpong{};
     }
-    else // TmaWarpSpecializedStreamK
+    else // TmaWarpSpecializedPersistent or TmaWarpSpecializedStreamK
     {
-        if constexpr (TileM < 128)
-        {
-            return cutlass::gemm::KernelTmaWarpSpecialized{};
-        }
-        else
-        {
-            return cutlass::gemm::KernelTmaWarpSpecializedCooperative{};
-        }
+        return cutlass::gemm::KernelTmaWarpSpecializedCooperative{};
     }
 }
 
@@ -81,11 +61,9 @@ constexpr auto get_kernel_schedule()
 template <HopperKernelType KernelType>
 constexpr auto get_epilogue_schedule()
 {
-    if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPersistent)
-    {
-        return cutlass::epilogue::TmaWarpSpecializedCooperative{};
-    }
-    else if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedStreamK)
+    // Persistent and StreamK variants use cooperative epilogue
+    if constexpr (KernelType == HopperKernelType::TmaWarpSpecializedPersistent ||
+                  KernelType == HopperKernelType::TmaWarpSpecializedStreamK)
     {
         return cutlass::epilogue::TmaWarpSpecializedCooperative{};
     }
@@ -114,9 +92,14 @@ constexpr auto get_tile_scheduler()
 }
 
 // Helper function to get stage count type
-template <StageCountType StageType, typename ElementA, int Stages = 3>
+template <StageCountType StageType, typename ElementA, int Stages = 5>
 constexpr auto get_stage_count()
 {
+    // Validate: Auto requires Stages == -1, Constant requires Stages > 0
+    static_assert((StageType == StageCountType::Auto && Stages == -1) ||
+                  (StageType == StageCountType::Constant && Stages > 0),
+                  "When StageType is Auto, Stages must be -1; when Constant, Stages must be > 0");
+
     if constexpr (StageType == StageCountType::Auto)
     {
         return cutlass::gemm::collective::StageCountAutoCarveout<sizeof(ElementA)>{};
@@ -127,9 +110,14 @@ constexpr auto get_stage_count()
     }
 }
 
-template <typename ElementType, HopperKernelType KernelType, StageCountType StageType>
+template <typename ElementType, HopperKernelType KernelType, StageCountType StageType, int NumStages = -1>
 struct CutlassHopperGemmConfig
 {
+    // Validate stage count configuration: Auto requires NumStages == -1, Constant requires NumStages > 0
+    static_assert((StageType == StageCountType::Auto && NumStages == -1) ||
+                  (StageType == StageCountType::Constant && NumStages > 0),
+                  "When StageType is Auto, NumStages must be -1; when Constant, NumStages must be > 0");
+
     // Element types
     using ElementA = ElementType;
     using ElementB = ElementType;
@@ -151,7 +139,8 @@ struct CutlassHopperGemmConfig
 
     // Tile and cluster configuration for H100
     static constexpr int TileM = 128;
-    static constexpr int TileN = 256;
+    // TileN depends on NumStages: use 256 if stages 1-3, otherwise 128
+    static constexpr int TileN = (StageType == StageCountType::Constant && NumStages >= 1 && NumStages <= 3) ? 256 : 128;
     static constexpr int TileK = 64;
 
     using TileShape = Shape<cute::Int<TileM>, cute::Int<TileN>, cute::Int<TileK>>; // CTA tile (M, N, K)
@@ -161,7 +150,7 @@ struct CutlassHopperGemmConfig
     using KernelSchedule = decltype(get_kernel_schedule<KernelType, TileM>());
     using EpilogueSchedule = decltype(get_epilogue_schedule<KernelType>());
     using TileSchedulerType = decltype(get_tile_scheduler<KernelType>());
-    using StageCount = decltype(get_stage_count<StageType, ElementA>());
+    using StageCount = decltype(get_stage_count<StageType, ElementA, NumStages>());
 
     // Build mainloop collective
     using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -217,32 +206,32 @@ struct CutlassHopperGemmConfig
 
 // Type aliases for different kernel configurations
 // TMA Warp Specialized variants
-template <typename ElementType>
-using TmaWarpSpecializedAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecialized, StageCountType::Auto>;
+template <typename ElementType, int NumStages = -1>
+using TmaWarpSpecializedAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecialized, StageCountType::Auto, NumStages>;
 
-template <typename ElementType>
-using TmaWarpSpecializedConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecialized, StageCountType::Constant>;
+template <typename ElementType, int NumStages = 5>
+using TmaWarpSpecializedConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecialized, StageCountType::Constant, NumStages>;
 
 // TMA Warp Specialized Persistent variants
-template <typename ElementType>
-using TmaWarpSpecializedPersistentAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPersistent, StageCountType::Auto>;
+template <typename ElementType, int NumStages = -1>
+using TmaWarpSpecializedPersistentAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPersistent, StageCountType::Auto, NumStages>;
 
-template <typename ElementType>
-using TmaWarpSpecializedPersistentConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPersistent, StageCountType::Constant>;
+template <typename ElementType, int NumStages = 5>
+using TmaWarpSpecializedPersistentConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPersistent, StageCountType::Constant, NumStages>;
 
 // TMA Warp Specialized Pingpong variants
-template <typename ElementType>
-using TmaWarpSpecializedPingpongAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPingpong, StageCountType::Auto>;
+template <typename ElementType, int NumStages = -1>
+using TmaWarpSpecializedPingpongAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPingpong, StageCountType::Auto, NumStages>;
 
-template <typename ElementType>
-using TmaWarpSpecializedPingpongConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPingpong, StageCountType::Constant>;
+template <typename ElementType, int NumStages = 5>
+using TmaWarpSpecializedPingpongConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedPingpong, StageCountType::Constant, NumStages>;
 
 // TMA Warp Specialized Stream-K variants
-template <typename ElementType>
-using TmaWarpSpecializedStreamKAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedStreamK, StageCountType::Auto>;
+template <typename ElementType, int NumStages = -1>
+using TmaWarpSpecializedStreamKAutoConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedStreamK, StageCountType::Auto, NumStages>;
 
-template <typename ElementType>
-using TmaWarpSpecializedStreamKConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedStreamK, StageCountType::Constant>;
+template <typename ElementType, int NumStages = 3>
+using TmaWarpSpecializedStreamKConstantConfig = CutlassHopperGemmConfig<ElementType, HopperKernelType::TmaWarpSpecializedStreamK, StageCountType::Constant, NumStages>;
 
 // BF16 type aliases for all 8 variants
 using BF16HopperTmaWarpSpecializedAuto = TmaWarpSpecializedAutoConfig<bfloat16_t>;
@@ -544,11 +533,11 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(
         "bfloat16", at::kBFloat16);
 }
 
-// Backward compatibility: default to pingpong variant with constant stage count
+// Backward compatibility: default to basic TMA warp specialized variant with auto stage count
 void sgemm_cutlass_hopper_bf16(
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix)
 {
-    sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(matrix_a, matrix_b, output_matrix);
+    sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto(matrix_a, matrix_b, output_matrix);
 }
