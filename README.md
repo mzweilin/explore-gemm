@@ -1,6 +1,6 @@
 # [Learning CUTLASS the hard way](https://www.kapilsharma.dev/posts/learn-cutlass-the-hard-way/) Code
 
-CUDA implementations of General Matrix Multiply (GEMM) operations with PyTorch integration.
+[IN ACTIVE DEVELOPMENT] CUDA implementations of General Matrix Multiply (GEMM) operations with PyTorch integration.
 
 ## Setup
 
