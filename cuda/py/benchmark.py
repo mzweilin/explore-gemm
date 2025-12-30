@@ -40,7 +40,12 @@ Available kernels:
     - tensorcore_async_bf16: CUDA Tensor Core with async pipeline (BF16)
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs (requires -d float16)
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs (requires -d bfloat16)
-    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, requires -d bfloat16, FP16 not supported)
+    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, requires -d bfloat16, default variant)
+    - cutlass_hopper_bf16_tma_warp_specialized_auto: CUTLASS Hopper TMA Warp Specialized Auto
+    - cutlass_hopper_bf16_tma_warp_specialized_constant: CUTLASS Hopper TMA Warp Specialized Constant
+    - cutlass_hopper_bf16_tma_warp_specialized_persistent_constant: CUTLASS Hopper TMA Persistent Constant
+    - cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant: CUTLASS Hopper TMA Pingpong Constant
+    - cutlass_hopper_bf16_tma_warp_specialized_streamk_constant: CUTLASS Hopper TMA Stream-K Constant
 
 Note: When using -d float16 or -d bfloat16 without specifying kernels, FP32-only
 kernels are automatically filtered out. If you explicitly request FP32-only kernels
@@ -1402,6 +1407,11 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             "cutlass_bf16",
             "cutlass_fp32",
             "cutlass_hopper_bf16",
+            "cutlass_hopper_bf16_tma_warp_specialized_auto",
+            "cutlass_hopper_bf16_tma_warp_specialized_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant",
         ],
         case_sensitive=False,
     ),

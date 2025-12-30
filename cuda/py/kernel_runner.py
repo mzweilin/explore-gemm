@@ -33,7 +33,12 @@ Available kernels:
     - cutlass_fp16: CUTLASS library GEMM with FP16 inputs
     - cutlass_bf16: CUTLASS library GEMM with BF16 inputs
     - cutlass_fp32: CUTLASS library GEMM with FP32 inputs (SIMT)
-    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 inputs (SM90+, FP16 not supported)
+    - cutlass_hopper_bf16: CUTLASS Hopper GEMM with BF16 (SM90+, default variant)
+    - cutlass_hopper_bf16_tma_warp_specialized_auto: CUTLASS Hopper TMA Warp Specialized Auto
+    - cutlass_hopper_bf16_tma_warp_specialized_constant: CUTLASS Hopper TMA Warp Specialized Constant
+    - cutlass_hopper_bf16_tma_warp_specialized_persistent_constant: CUTLASS Hopper TMA Persistent Constant
+    - cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant: CUTLASS Hopper TMA Pingpong Constant
+    - cutlass_hopper_bf16_tma_warp_specialized_streamk_constant: CUTLASS Hopper TMA Stream-K Constant
 """
 
 import os
@@ -228,8 +233,48 @@ def run_cutlass_fp32_kernel(
 def run_cutlass_hopper_bf16_kernel(
     a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
 ) -> torch.Tensor:
-    """Run CUTLASS Hopper GEMM kernel with BF16 inputs (SM90+)."""
+    """Run CUTLASS Hopper GEMM kernel with BF16 inputs (SM90+) - Default variant."""
     cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c)  # type: ignore
+    return c
+
+
+def run_cutlass_hopper_bf16_tma_warp_specialized_auto_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
+    """Run CUTLASS Hopper TMA Warp Specialized Auto kernel with BF16 inputs (SM90+)."""
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto(a, b, c)  # type: ignore
+    return c
+
+
+def run_cutlass_hopper_bf16_tma_warp_specialized_constant_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
+    """Run CUTLASS Hopper TMA Warp Specialized Constant kernel with BF16 inputs (SM90+)."""
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant(a, b, c)  # type: ignore
+    return c
+
+
+def run_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
+    """Run CUTLASS Hopper TMA Warp Specialized Persistent Constant kernel with BF16 inputs (SM90+)."""
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(a, b, c)  # type: ignore
+    return c
+
+
+def run_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
+    """Run CUTLASS Hopper TMA Warp Specialized Pingpong Constant kernel with BF16 inputs (SM90+)."""
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(a, b, c)  # type: ignore
+    return c
+
+
+def run_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant_kernel(
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor
+) -> torch.Tensor:
+    """Run CUTLASS Hopper TMA Warp Specialized Stream-K Constant kernel with BF16 inputs (SM90+)."""
+    cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(a, b, c)  # type: ignore
     return c
 
 
@@ -277,6 +322,11 @@ def run_kernel_n_times(
             "cutlass_bf16",
             "cutlass_fp32",
             "cutlass_hopper_bf16",
+            "cutlass_hopper_bf16_tma_warp_specialized_auto",
+            "cutlass_hopper_bf16_tma_warp_specialized_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant",
         ],
         case_sensitive=False,
     ),
@@ -343,6 +393,11 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "cutlass_bf16": run_cutlass_bf16_kernel,
         "cutlass_fp32": run_cutlass_fp32_kernel,
         "cutlass_hopper_bf16": run_cutlass_hopper_bf16_kernel,
+        "cutlass_hopper_bf16_tma_warp_specialized_auto": run_cutlass_hopper_bf16_tma_warp_specialized_auto_kernel,
+        "cutlass_hopper_bf16_tma_warp_specialized_constant": run_cutlass_hopper_bf16_tma_warp_specialized_constant_kernel,
+        "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant": run_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_kernel,
+        "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant": run_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_kernel,
+        "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant": run_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant_kernel,
     }
 
     # Auto-detect required dtype for Tensor Core and CUTLASS kernels if not specified
@@ -368,6 +423,11 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
             "tensorcore_async_bf16",
             "cutlass_bf16",
             "cutlass_hopper_bf16",
+            "cutlass_hopper_bf16_tma_warp_specialized_auto",
+            "cutlass_hopper_bf16_tma_warp_specialized_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+            "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant",
         ]
         and dtype == "float32"
     ):
@@ -420,8 +480,19 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     # Determine output dtype based on kernel type
     # - PyTorch and warptiling: output matches input dtype
     # - Tensor Core and CUTLASS kernels: output FP32 (they accumulate in FP32)
+    # - CUTLASS Hopper BF16: output BF16 (matches input dtype)
     # - FP32-only kernels: output FP32
     if kernel in ["pytorch", "warptiling"]:
+        output_dtype = torch_dtype
+    elif kernel in [
+        "cutlass_hopper_bf16",
+        "cutlass_hopper_bf16_tma_warp_specialized_auto",
+        "cutlass_hopper_bf16_tma_warp_specialized_constant",
+        "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
+        "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
+        "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant",
+    ]:
+        # Hopper kernels expect BF16 output to match input
         output_dtype = torch_dtype
     elif kernel in [
         "tensorcore_naive_fp16",
@@ -435,7 +506,6 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
         "cutlass_fp16",
         "cutlass_bf16",
         "cutlass_fp32",
-        "cutlass_hopper_bf16",
     ]:
         output_dtype = torch.float32
     else:
