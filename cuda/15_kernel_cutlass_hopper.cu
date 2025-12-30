@@ -273,7 +273,7 @@ cudaError_t cutlass_hopper_gemm_launch(
     using StrideD = typename Config::GemmKernel::StrideD;
 
     auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {M, K, 1});
-    auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {K, N, 1});
+    auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {N, K, 1});
     auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {M, N, 1});
     auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {M, N, 1});
 
