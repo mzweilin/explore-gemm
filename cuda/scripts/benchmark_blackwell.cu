@@ -279,13 +279,13 @@ struct Options
     return out;
   }
 
-  /// Compute performance in GFLOP/s
-  double gflops(double runtime_s) const
+  /// Compute performance in TFLOP/s
+  double tflops(double runtime_s) const
   {
     // Two flops per multiply-add
     uint64_t flop = uint64_t(2) * m * n * k;
-    double gflop = double(flop) / double(1.0e9);
-    return gflop / runtime_s;
+    double tflop = double(flop) / double(1.0e12);
+    return tflop / runtime_s;
   }
 };
 
@@ -420,10 +420,10 @@ int run(Options &options)
     }
     timer.stop();
 
-    // Compute average runtime and GFLOPs.
+    // Compute average runtime and TFLOPs.
     float elapsed_ms = timer.elapsed_millis();
     result.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
-    result.gflops = options.gflops(result.avg_runtime_ms / 1000.0);
+    result.tflops = options.tflops(result.avg_runtime_ms / 1000.0);
 
     std::string raster = "Heuristic";
 
@@ -466,7 +466,7 @@ int run(Options &options)
                 << red << ','
                 << "(" << options.preferred_cluster_m << "," << options.preferred_cluster_n << ")" << ','
                 << "(" << options.fallback_cluster_m << "," << options.fallback_cluster_n << ")" << ','
-                << result.avg_runtime_ms << "," << result.gflops << ','
+                << result.avg_runtime_ms << "," << result.tflops << ','
                 << worktile_count << std::endl;
     }
     else
@@ -478,7 +478,7 @@ int run(Options &options)
       std::cout << "  Preferred Cluster: (" << options.preferred_cluster_m << ", " << options.preferred_cluster_n << ", 1)" << std::endl;
       std::cout << "  Fallback Cluster: (" << options.fallback_cluster_m << ", " << options.fallback_cluster_n << ", 1)" << std::endl;
       std::cout << "  Avg runtime: " << result.avg_runtime_ms << " ms" << std::endl;
-      std::cout << "  GFLOPS: " << result.gflops << std::endl;
+      std::cout << "  TFLOPS: " << result.tflops << std::endl;
       std::cout << "  Worktile Count: " << worktile_count << std::endl;
     }
   }

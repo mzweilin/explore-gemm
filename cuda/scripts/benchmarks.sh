@@ -202,7 +202,7 @@ DECOMPOSITIONS=("heuristic" "streamk" "splitk" "dataparallel")
 RASTERS=("H" "N" "M")
 
 # Define swizzle factors
-SWIZZLES=(1 2 4)
+SWIZZLES=(1 2 4 8)
 
 # Define split-K values (only used for splitk decomposition)
 if [ "$BENCHMARK_MODE" = "quick" ]; then
@@ -262,9 +262,9 @@ if [ "$CSV_MODE" = true ]; then
     echo "" >&2
     # Print CSV header to stdout (goes to file if redirected)
     if [[ "$BINARY" == *"blackwell"* ]]; then
-        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,Reduction,PreferredCluster,FallbackCluster,AvgRuntime_ms,GFLOPS,WorktileCount"
+        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,Reduction,PreferredCluster,FallbackCluster,AvgRuntime_ms,TFLOPS,WorktileCount"
     else
-        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,AvgRuntime_ms,GFLOPS,WorktileCount"
+        echo "M,N,K,Raster,Swizzle,Decomposition,Splits,AvgRuntime_ms,TFLOPS,WorktileCount"
     fi
 fi
 
@@ -310,8 +310,8 @@ run_benchmark() {
 
         # Parse and display nicely on stderr for terminal viewing (without the CSV line)
         if [[ "$BENCHMARK_OUTPUT" =~ ^[0-9] ]]; then
-            IFS=',' read -r M N K Raster Swizzle Decomp Splits Runtime GFLOPS Worktiles <<< "$BENCHMARK_OUTPUT"
-            echo -e "    ${GREEN}✓${NC} ${BLUE}Runtime:${NC} ${Runtime}ms  ${BLUE}GFLOPS:${NC} ${GFLOPS}  ${BLUE}Worktiles:${NC} ${Worktiles}" >&2
+            IFS=',' read -r M N K Raster Swizzle Decomp Splits Runtime TFLOPS Worktiles <<< "$BENCHMARK_OUTPUT"
+            echo -e "    ${GREEN}✓${NC} ${BLUE}Runtime:${NC} ${Runtime}ms  ${BLUE}TFLOPS:${NC} ${TFLOPS}  ${BLUE}Worktiles:${NC} ${Worktiles}" >&2
         fi
     else
         # In non-CSV mode, just run normally

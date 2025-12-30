@@ -99,18 +99,18 @@ bool initialize_block(cutlass::DeviceAllocation<Element>& block, uint64_t seed=2
 struct BenchmarkResult
 {
   double avg_runtime_ms;
-  double gflops;
+  double tflops;
   cutlass::Status status;
   cudaError_t error;
   bool passed;
 
   BenchmarkResult(
     double avg_runtime_ms = 0,
-    double gflops = 0,
+    double tflops = 0,
     cutlass::Status status = cutlass::Status::kSuccess,
     cudaError_t error = cudaSuccess)
   :
-    avg_runtime_ms(avg_runtime_ms), gflops(gflops), status(status), error(error), passed(false)
+    avg_runtime_ms(avg_runtime_ms), tflops(tflops), status(status), error(error), passed(false)
   {}
 };
 

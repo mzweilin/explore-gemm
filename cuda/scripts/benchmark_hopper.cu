@@ -211,28 +211,28 @@ struct Options
     return out;
   }
 
-  double gflops(double runtime_s) const
+  double tflops(double runtime_s) const
   {
     uint64_t flop = uint64_t(2) * m * n * k;
-    double gflop = double(flop) / double(1.0e9);
-    return gflop / runtime_s;
+    double tflop = double(flop) / double(1.0e12);
+    return tflop / runtime_s;
   }
 };
 
 struct Result
 {
   double avg_runtime_ms;
-  double gflops;
+  double tflops;
   cutlass::Status status;
   cudaError_t error;
   bool passed;
 
   Result(
       double avg_runtime_ms = 0,
-      double gflops = 0,
+      double tflops = 0,
       cutlass::Status status = cutlass::Status::kSuccess,
       cudaError_t error = cudaSuccess)
-      : avg_runtime_ms(avg_runtime_ms), gflops(gflops), status(status), error(error), passed(false)
+      : avg_runtime_ms(avg_runtime_ms), tflops(tflops), status(status), error(error), passed(false)
   {
   }
 };
@@ -337,7 +337,7 @@ int run(Options &options)
 
     float elapsed_ms = timer.elapsed_millis();
     result.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
-    result.gflops = options.gflops(result.avg_runtime_ms / 1000.0);
+    result.tflops = options.tflops(result.avg_runtime_ms / 1000.0);
 
     std::string raster = "Heuristic";
 
@@ -371,7 +371,7 @@ int run(Options &options)
       std::cout << options.m << ',' << options.n << ',' << options.k << ','
                 << raster << ',' << options.swizzle << ','
                 << decomp << ',' << options.splits << ','
-                << result.avg_runtime_ms << "," << result.gflops << ','
+                << result.avg_runtime_ms << "," << result.tflops << ','
                 << worktile_count << '\n';
     }
     else
@@ -380,7 +380,7 @@ int run(Options &options)
       std::cout << "  Rasterization: " << raster << " with a maximum CTA swizzle of " << options.swizzle << '\n';
       std::cout << "  Decomposition: " << decomp << ((options.decomp == DecompositionMode::SplitK) ? "with split of " + std::to_string(options.splits) : "") << '\n';
       std::cout << "  Avg runtime: " << result.avg_runtime_ms << " ms" << '\n';
-      std::cout << "  GFLOPS: " << result.gflops << '\n';
+      std::cout << "  TFLOPS: " << result.tflops << '\n';
       std::cout << "  Worktile Count: " << worktile_count << '\n';
     }
   }
