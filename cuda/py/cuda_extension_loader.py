@@ -485,7 +485,6 @@ namespace cg = cooperative_groups;
             functions_list.extend(
                 [
                     "sgemm_cutlass_hopper_autotune_bf16",
-                    "get_num_cutlass_hopper_configs",
                 ]
             )
 

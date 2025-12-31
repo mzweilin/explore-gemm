@@ -46,17 +46,17 @@ struct CutlassHopperGemmKernel
     using ElementAccumulator = float;
 
     using LayoutA = cutlass::layout::RowMajor;
-    using LayoutB = cutlass::layout::ColumnMajor;
-    using LayoutC = cutlass::layout::ColumnMajor;
-    using LayoutD = cutlass::layout::ColumnMajor;
+    using LayoutB = cutlass::layout::RowMajor;
+    using LayoutC = cutlass::layout::RowMajor;
+    using LayoutD = cutlass::layout::RowMajor;
 
     static constexpr int AlignmentA = 128 / cutlass::sizeof_bits<ElementA>::value;
     static constexpr int AlignmentB = 128 / cutlass::sizeof_bits<ElementB>::value;
     static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
     static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
 
-    using TileShape = Shape<_128, _128, _64>;
-    using ClusterShape = Shape<_2, _1, _1>;
+    using TileShape = Shape<_128, _256, _64>;
+    using ClusterShape = Shape<_1, _1, _1>;
 
     // Fixed kernel schedules
     using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperative;
@@ -136,7 +136,7 @@ cudaError_t cutlass_hopper_gemm_launch(
     using StrideD = CutlassHopperGemmKernel::GemmKernel::StrideD;
 
     auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {M, K, 1});
-    auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {N, K, 1});
+    auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {K, N, 1});
     auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {M, N, 1});
     auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {M, N, 1});
 
@@ -226,10 +226,10 @@ cudaError_t dispatch_cutlass_hopper_runtime(
 // PyTorch wrapper - simplified with fixed tile/cluster configuration
 // Only raster_order, decomposition, swizzle, and splits are runtime-configurable
 void sgemm_cutlass_hopper_autotune_bf16(
-    int raster_order,
-    int decomposition,
-    int swizzle,
-    int splits,
+    const int raster_order,
+    const int decomposition,
+    const int swizzle,
+    const int splits,
     const torch::Tensor &matrix_a,
     const torch::Tensor &matrix_b,
     torch::Tensor &output_matrix)

@@ -41,8 +41,8 @@ constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
 using ElementAccumulator = float;
 using ArchTag = cutlass::arch::Sm90;
 using OperatorClass = cutlass::arch::OpClassTensorOp;
-using TileShape = Shape<_128, _128, _64>;
-using ClusterShape = Shape<_2, _1, _1>;
+using TileShape = Shape<_128, _256, _64>;
+using ClusterShape = Shape<_1, _1, _1>;
 using StageCountType = cutlass::gemm::collective::StageCountAuto;
 
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<

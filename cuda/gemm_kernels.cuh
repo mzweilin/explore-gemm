@@ -160,7 +160,12 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(
 // Requires Hopper architecture (SM 9.0+) with TMA (Tensor Memory Accelerator) support
 // Note: alpha=1.0, beta=0.0 are hard-coded
 // Use get_num_cutlass_hopper_configs() to get the total number of available configs
-void sgemm_cutlass_hopper_autotune_bf16(int config_id, const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
-                                         torch::Tensor &output_matrix);
+void sgemm_cutlass_hopper_autotune_bf16(
+    const int raster_order,
+    const int decomposition,
+    const int swizzle,
+    const int splits,
+    const torch::Tensor &matrix_a,
+    const torch::Tensor &matrix_b,
+    torch::Tensor &output_matrix);
 
-int get_num_cutlass_hopper_configs();
