@@ -94,38 +94,57 @@ DECOMP_DATA_PARALLEL = 1
 DECOMP_SPLIT_K = 2
 DECOMP_STREAM_K = 3
 
-# Base configurations (tile and cluster shapes)
-HOPPER_BASE_CONFIGS = [
-    {"name": "T128x128x64_C2x1x1", "tile": (128, 128, 64), "cluster": (2, 1, 1)},
-    {"name": "T128x256x64_C2x1x1", "tile": (128, 256, 64), "cluster": (2, 1, 1)},
-    {"name": "T256x128x64_C1x2x1", "tile": (256, 128, 64), "cluster": (1, 2, 1)},
-    {"name": "T128x128x128_C2x1x1", "tile": (128, 128, 128), "cluster": (2, 1, 1)},
-    {"name": "T256x256x64_C2x2x1", "tile": (256, 256, 64), "cluster": (2, 2, 1)},
-    {"name": "T128x64x64_C2x1x1", "tile": (128, 64, 64), "cluster": (2, 1, 1)},
-    {"name": "T64x128x64_C1x2x1", "tile": (64, 128, 64), "cluster": (1, 2, 1)},
-    {"name": "T64x64x128_C1x1x1", "tile": (64, 64, 128), "cluster": (1, 1, 1)},
-    {"name": "T128x128x64_C1x1x1", "tile": (128, 128, 64), "cluster": (1, 1, 1)},
+# Fixed configuration matching benchmark_hopper.cu
+# Tile: 128x128x64, Cluster: 2x1x1, only scheduler parameters are tunable
+# Comprehensive configuration grid matching benchmarks.sh
+
+# Generate all combinations of decomposition, raster order, and swizzle
+DECOMPOSITIONS = [
+    ("Heuristic", DECOMP_HEURISTIC),
+    ("StreamK", DECOMP_STREAM_K),
+    ("SplitK", DECOMP_SPLIT_K),
+    ("DataParallel", DECOMP_DATA_PARALLEL),
 ]
 
-# Generate all configurations (9 base configs with Auto stage count)
-# We only use Auto stage count to minimize kernel compilation time
+RASTER_ORDERS = [
+    ("RasterH", RASTER_ORDER_HEURISTIC),
+    ("RasterN", RASTER_ORDER_ALONG_N),
+    ("RasterM", RASTER_ORDER_ALONG_M),
+]
+
+SWIZZLES = [1, 2, 4, 8]
+SPLITS_VALUES = [1, 2, 3, 4]  # For SplitK decomposition
+
+# Generate all configuration combinations
 HOPPER_CONFIG_METADATA = []
-for config_id, base_config in enumerate(HOPPER_BASE_CONFIGS):
-    HOPPER_CONFIG_METADATA.append(
-        {
-            "id": config_id,
-            "name": base_config["name"],
-            "tile": base_config["tile"],
-            "cluster": base_config["cluster"],
-            "stages": -1,  # Always use Auto stage count
-            "stage_name": "Auto",
-            "scheduler": SCHEDULER_TMA_WARP_SPECIALIZED,  # Default to basic scheduler
-            "raster_order": RASTER_ORDER_HEURISTIC,
-            "decomposition": DECOMP_HEURISTIC,
-            "swizzle": 1,
-            "splits": 1,
-        }
-    )
+config_id = 0
+
+for decomp_name, decomp_val in DECOMPOSITIONS:
+    for raster_name, raster_val in RASTER_ORDERS:
+        for swizzle in SWIZZLES:
+            if decomp_name == "SplitK":
+                # For SplitK, try different split values
+                for splits in SPLITS_VALUES:
+                    HOPPER_CONFIG_METADATA.append({
+                        "id": config_id,
+                        "name": f"{decomp_name}_{raster_name}_Swz{swizzle}_Spl{splits}",
+                        "raster_order": raster_val,
+                        "decomposition": decomp_val,
+                        "swizzle": swizzle,
+                        "splits": splits,
+                    })
+                    config_id += 1
+            else:
+                # For other decompositions, splits is always 1
+                HOPPER_CONFIG_METADATA.append({
+                    "id": config_id,
+                    "name": f"{decomp_name}_{raster_name}_Swz{swizzle}",
+                    "raster_order": raster_val,
+                    "decomposition": decomp_val,
+                    "swizzle": swizzle,
+                    "splits": 1,
+                })
+                config_id += 1
 
 
 def benchmark_config(
@@ -147,7 +166,7 @@ def benchmark_config(
     - Statistical outlier removal and median-based comparison
 
     Args:
-        config_meta: Configuration metadata dictionary with tile, cluster, stages, scheduler
+        config_meta: Configuration metadata dictionary with scheduler parameters
         a: Input matrix A
         b: Input matrix B
         warmup: Number of warmup iterations (adaptive if adaptive_iterations=True)
@@ -162,11 +181,7 @@ def benchmark_config(
     # Create output tensor (same dtype as input)
     c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
 
-    # Extract config parameters
-    tile_m, tile_n, tile_k = config_meta["tile"]
-    cluster_m, cluster_n, cluster_k = config_meta["cluster"]
-    stages = config_meta["stages"]
-    scheduler = config_meta["scheduler"]
+    # Extract config parameters (only scheduler params, tile/cluster are fixed)
     raster_order = config_meta.get("raster_order", RASTER_ORDER_HEURISTIC)
     decomposition = config_meta.get("decomposition", DECOMP_HEURISTIC)
     swizzle = config_meta.get("swizzle", 1)
@@ -185,8 +200,7 @@ def benchmark_config(
 
             start_estimate.record()
             for _ in range(estimate_iters):
-                kernel_fn(tile_m, tile_n, tile_k, cluster_m, cluster_n, cluster_k, stages, scheduler,
-                          raster_order, decomposition, swizzle, splits, a, b, c)
+                kernel_fn(raster_order, decomposition, swizzle, splits, a, b, c)
             end_estimate.record()
             torch.cuda.synchronize()
 
@@ -201,8 +215,7 @@ def benchmark_config(
         for _ in range(warmup):
             if flush_cache:
                 flush_l2_cache()
-            kernel_fn(tile_m, tile_n, tile_k, cluster_m, cluster_n, cluster_k, stages, scheduler,
-                      raster_order, decomposition, swizzle, splits, a, b, c)
+            kernel_fn(raster_order, decomposition, swizzle, splits, a, b, c)
 
         torch.cuda.synchronize()
 
@@ -216,8 +229,7 @@ def benchmark_config(
                 flush_l2_cache()
 
             start_events[i].record()
-            kernel_fn(tile_m, tile_n, tile_k, cluster_m, cluster_n, cluster_k, stages, scheduler,
-                      raster_order, decomposition, swizzle, splits, a, b, c)
+            kernel_fn(raster_order, decomposition, swizzle, splits, a, b, c)
             end_events[i].record()
 
         torch.cuda.synchronize()
@@ -420,7 +432,7 @@ def autotune_size(
         config_meta = HOPPER_CONFIG_METADATA[config_id]
         logger.info(f"\n📊 Testing Config {config_id}: {config_meta['name']}")
         logger.info(
-            f"   Tile: {config_meta['tile']}, Cluster: {config_meta['cluster']}, Stages: {config_meta['stage_name']}"
+            f"   Tile: 128x128x64, Cluster: 2x1x1, Scheduler params: raster={config_meta['raster_order']}, decomp={config_meta['decomposition']}"
         )
 
         result = benchmark_config(
