@@ -77,6 +77,23 @@ def flush_l2_cache():
 logger.info("🚀 Loading CUTLASS Hopper autotunable kernels...")
 cuda_kernels = create_cuda_extension(verbose=True, load_autotune_kernels=True, load_hopper_kernels=True)
 
+# Scheduler types (matching C++ enum HopperSchedulerType)
+SCHEDULER_TMA_WARP_SPECIALIZED = 0
+SCHEDULER_TMA_WARP_SPECIALIZED_PERSISTENT = 1
+SCHEDULER_TMA_WARP_SPECIALIZED_PINGPONG = 2
+SCHEDULER_TMA_WARP_SPECIALIZED_STREAMK = 3
+
+# Raster order options (matching C++ RasterOrderOptions)
+RASTER_ORDER_ALONG_M = 0
+RASTER_ORDER_ALONG_N = 1
+RASTER_ORDER_HEURISTIC = 2
+
+# Decomposition modes (matching C++ DecompositionMode)
+DECOMP_HEURISTIC = 0
+DECOMP_DATA_PARALLEL = 1
+DECOMP_SPLIT_K = 2
+DECOMP_STREAM_K = 3
+
 # Base configurations (tile and cluster shapes)
 HOPPER_BASE_CONFIGS = [
     {"name": "T128x128x64_C2x1x1", "tile": (128, 128, 64), "cluster": (2, 1, 1)},
@@ -90,33 +107,31 @@ HOPPER_BASE_CONFIGS = [
     {"name": "T128x128x64_C1x1x1", "tile": (128, 128, 64), "cluster": (1, 1, 1)},
 ]
 
-# Stage count variants: Auto, 3, 4, 5, 6
-STAGE_VARIANTS = ["Auto", "S3", "S4", "S5"]
-
-# Generate all 45 configurations (9 base configs × 5 stage variants)
+# Generate all configurations (9 base configs with Auto stage count)
+# We only use Auto stage count to minimize kernel compilation time
 HOPPER_CONFIG_METADATA = []
-config_id = 0
-for base_idx, base_config in enumerate(HOPPER_BASE_CONFIGS):
-    for stage_idx, stage_name in enumerate(STAGE_VARIANTS):
-        HOPPER_CONFIG_METADATA.append(
-            {
-                "id": config_id,
-                "name": f"{base_config['name']}_{stage_name}",
-                "tile": base_config["tile"],
-                "cluster": base_config["cluster"],
-                "stages": stage_name,
-                "base_idx": base_idx,
-                "stage_idx": stage_idx,
-            }
-        )
-        config_id += 1
+for config_id, base_config in enumerate(HOPPER_BASE_CONFIGS):
+    HOPPER_CONFIG_METADATA.append(
+        {
+            "id": config_id,
+            "name": base_config["name"],
+            "tile": base_config["tile"],
+            "cluster": base_config["cluster"],
+            "stages": -1,  # Always use Auto stage count
+            "stage_name": "Auto",
+            "scheduler": SCHEDULER_TMA_WARP_SPECIALIZED,  # Default to basic scheduler
+            "raster_order": RASTER_ORDER_HEURISTIC,
+            "decomposition": DECOMP_HEURISTIC,
+            "swizzle": 1,
+            "splits": 1,
+        }
+    )
 
 
 def benchmark_config(
-    config_id: int,
+    config_meta: Dict,
     a: torch.Tensor,
     b: torch.Tensor,
-    dtype: str,
     warmup: int = 10,
     iterations: int = 100,
     flush_cache: bool = True,
@@ -132,10 +147,9 @@ def benchmark_config(
     - Statistical outlier removal and median-based comparison
 
     Args:
-        config_id: Configuration ID (0-11)
+        config_meta: Configuration metadata dictionary with tile, cluster, stages, scheduler
         a: Input matrix A
         b: Input matrix B
-        dtype: Data type ("float16" or "bfloat16")
         warmup: Number of warmup iterations (adaptive if adaptive_iterations=True)
         iterations: Number of benchmark iterations (adaptive if adaptive_iterations=True)
         flush_cache: Whether to flush L2 cache between iterations
@@ -147,6 +161,16 @@ def benchmark_config(
     """
     # Create output tensor (same dtype as input)
     c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
+
+    # Extract config parameters
+    tile_m, tile_n, tile_k = config_meta["tile"]
+    cluster_m, cluster_n, cluster_k = config_meta["cluster"]
+    stages = config_meta["stages"]
+    scheduler = config_meta["scheduler"]
+    raster_order = config_meta.get("raster_order", RASTER_ORDER_HEURISTIC)
+    decomposition = config_meta.get("decomposition", DECOMP_HEURISTIC)
+    swizzle = config_meta.get("swizzle", 1)
+    splits = config_meta.get("splits", 1)
 
     # Select the appropriate kernel function (only bfloat16 is supported)
     kernel_fn = cuda_kernels.sgemm_cutlass_hopper_autotune_bf16  # type: ignore
@@ -161,7 +185,8 @@ def benchmark_config(
 
             start_estimate.record()
             for _ in range(estimate_iters):
-                kernel_fn(config_id, a, b, c)
+                kernel_fn(tile_m, tile_n, tile_k, cluster_m, cluster_n, cluster_k, stages, scheduler,
+                          raster_order, decomposition, swizzle, splits, a, b, c)
             end_estimate.record()
             torch.cuda.synchronize()
 
@@ -176,7 +201,8 @@ def benchmark_config(
         for _ in range(warmup):
             if flush_cache:
                 flush_l2_cache()
-            kernel_fn(config_id, a, b, c)
+            kernel_fn(tile_m, tile_n, tile_k, cluster_m, cluster_n, cluster_k, stages, scheduler,
+                      raster_order, decomposition, swizzle, splits, a, b, c)
 
         torch.cuda.synchronize()
 
@@ -190,7 +216,8 @@ def benchmark_config(
                 flush_l2_cache()
 
             start_events[i].record()
-            kernel_fn(config_id, a, b, c)
+            kernel_fn(tile_m, tile_n, tile_k, cluster_m, cluster_n, cluster_k, stages, scheduler,
+                      raster_order, decomposition, swizzle, splits, a, b, c)
             end_events[i].record()
 
         torch.cuda.synchronize()
@@ -211,7 +238,7 @@ def benchmark_config(
         return median_time_ms, min_time_ms, max_time_ms
 
     except RuntimeError as e:
-        logger.warning(f"Config {config_id} failed: {e}")
+        logger.warning(f"Config {config_meta['name']} failed: {e}")
         return None
 
 
@@ -393,14 +420,13 @@ def autotune_size(
         config_meta = HOPPER_CONFIG_METADATA[config_id]
         logger.info(f"\n📊 Testing Config {config_id}: {config_meta['name']}")
         logger.info(
-            f"   Tile: {config_meta['tile']}, Cluster: {config_meta['cluster']}"
+            f"   Tile: {config_meta['tile']}, Cluster: {config_meta['cluster']}, Stages: {config_meta['stage_name']}"
         )
 
         result = benchmark_config(
-            config_id,
+            config_meta,
             a,
             b,
-            dtype,
             flush_cache=flush_cache,
             adaptive_iterations=adaptive_iterations,
             target_time_ms=target_time_ms,
@@ -934,7 +960,7 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, adaptive_iters, target_t
     logger.info("")
 
     # Check if Hopper kernels are available
-    if not hasattr(cuda_kernels, "get_num_cutlass_hopper_configs"):
+    if not hasattr(cuda_kernels, "sgemm_cutlass_hopper_autotune_bf16"):
         logger.error("❌ Hopper kernels are not available on this GPU!")
         logger.error(
             "   This script requires a GPU with compute capability SM90+ (H100, H200, etc.)"
@@ -948,8 +974,8 @@ def main(dtype, sizes, load_cache_flag, no_cache_flush, adaptive_iters, target_t
         )
         return
 
-    # Get number of configs
-    num_configs = cuda_kernels.get_num_cutlass_hopper_configs()  # type: ignore
+    # Get number of configs from metadata
+    num_configs = len(HOPPER_CONFIG_METADATA)
     logger.info(f"🔧 Number of Hopper configurations: {num_configs}\n")
 
     # Run autotuning for each size
