@@ -17,12 +17,15 @@
 using namespace cute;
 
 // Hopper (SM90) Warp-Specialized GEMM using CUTLASS 3.x Collective Builder API
-// Fixed configuration: 128x128x64 tile, 2x1x1 cluster, bfloat16, StreamK scheduler
-// Only scheduler parameters (raster_order, decomposition, swizzle, splits) are runtime-configurable
+// Configurable tile sizes: 128x256x64 or 128x128x64, cluster: 1x1x1, bfloat16, StreamK scheduler
+// Runtime-configurable parameters: tile_size, raster_order, decomposition, swizzle, splits
 
-// Simplified configuration structure - only runtime scheduler parameters
+// Configuration structure with tile size and scheduler parameters
 struct HopperGemmConfig
 {
+    // Tile size selection (runtime-configurable)
+    int tile_size;      // 0: 128x256x64 (default), 1: 128x128x64
+
     // StreamK scheduler parameters (runtime-configurable)
     int raster_order;   // RasterOrderOptions: 0=AlongM, 1=AlongN, 2=Heuristic
     int decomposition;  // DecompositionMode: 0=Heuristic, 1=DataParallel, 2=SplitK, 3=StreamK
@@ -34,9 +37,11 @@ struct HopperGemmConfig
 using RasterOrderOptions = typename cutlass::gemm::kernel::detail::PersistentTileSchedulerSm90Params::RasterOrderOptions;
 using DecompositionMode = typename cutlass::gemm::kernel::detail::PersistentTileSchedulerSm90StreamKParams::DecompositionMode;
 
-// Simplified GEMM kernel with fixed configuration matching benchmark_hopper.cu
-// Fixed tile shape: 128x128x64, cluster shape: 2x1x1, bfloat16 element type
+// Templated GEMM kernel with configurable tile shape
+// Template parameter TileShapeT: either Shape<_128, _256, _64> or Shape<_128, _128, _64>
+// cluster shape: 1x1x1, bfloat16 element type
 // Uses TmaWarpSpecializedCooperative for mainloop/epilogue and StreamKScheduler
+template<typename TileShapeT>
 struct CutlassHopperGemmKernel
 {
     using ElementA = cutlass::bfloat16_t;
@@ -55,7 +60,7 @@ struct CutlassHopperGemmKernel
     static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
     static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
 
-    using TileShape = Shape<_128, _256, _64>;
+    using TileShape = TileShapeT;
     using ClusterShape = Shape<_1, _1, _1>;
 
     // Fixed kernel schedules
@@ -112,7 +117,8 @@ struct CutlassHopperGemmKernel
     using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
 
-// Launch function for fixed StreamK configuration
+// Launch function templated on tile shape
+template<typename TileShapeT>
 cudaError_t cutlass_hopper_gemm_launch(
     int M, int N, int K,
     const cutlass::bfloat16_t *d_A, int lda,
@@ -124,16 +130,17 @@ cudaError_t cutlass_hopper_gemm_launch(
     if (M == 0 || N == 0 || K == 0)
         return cudaSuccess;
 
-    CutlassHopperGemmKernel::Gemm gemm_op;
+    using GemmKernel = CutlassHopperGemmKernel<TileShapeT>;
+    typename GemmKernel::Gemm gemm_op;
 
     // Problem size (non-batched GEMM)
     auto problem_shape = make_shape(M, N, K);
 
     // Stride types (A: RowMajor, B/C/D: ColumnMajor)
-    using StrideA = CutlassHopperGemmKernel::GemmKernel::StrideA;
-    using StrideB = CutlassHopperGemmKernel::GemmKernel::StrideB;
-    using StrideC = CutlassHopperGemmKernel::GemmKernel::StrideC;
-    using StrideD = CutlassHopperGemmKernel::GemmKernel::StrideD;
+    using StrideA = typename GemmKernel::GemmKernel::StrideA;
+    using StrideB = typename GemmKernel::GemmKernel::StrideB;
+    using StrideC = typename GemmKernel::GemmKernel::StrideC;
+    using StrideD = typename GemmKernel::GemmKernel::StrideD;
 
     auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {M, K, 1});
     auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {K, N, 1});
@@ -154,7 +161,7 @@ cudaError_t cutlass_hopper_gemm_launch(
     DecompositionMode decomp = static_cast<DecompositionMode>(config.decomposition);
 
     // Stream-K scheduler arguments
-    CutlassHopperGemmKernel::GemmKernel::TileScheduler::Arguments scheduler_args{
+    typename GemmKernel::GemmKernel::TileScheduler::Arguments scheduler_args{
         config.splits,
         config.swizzle,
         raster,
@@ -162,7 +169,7 @@ cudaError_t cutlass_hopper_gemm_launch(
     };
 
     // Create arguments for StreamK scheduler
-    CutlassHopperGemmKernel::Gemm::Arguments args{
+    typename GemmKernel::Gemm::Arguments args{
         cutlass::gemm::GemmUniversalMode::kGemm,
         problem_shape,
         {d_A, stride_A, d_B, stride_B},
@@ -179,7 +186,7 @@ cudaError_t cutlass_hopper_gemm_launch(
     }
 
     // Initialize the kernel
-    size_t workspace_size = CutlassHopperGemmKernel::Gemm::get_workspace_size(args);
+    size_t workspace_size = GemmKernel::Gemm::get_workspace_size(args);
     void *workspace = nullptr;
 
     if (workspace_size > 0)
@@ -210,8 +217,8 @@ cudaError_t cutlass_hopper_gemm_launch(
     return cudaSuccess;
 }
 
-// Simplified runtime dispatch - single kernel instantiation
-// Tile shape: 128x128x64, cluster: 2x1x1, element type: bfloat16
+// Runtime dispatch based on tile size configuration
+// Supports two tile shapes: 128x256x64 (tile_size=0) and 128x128x64 (tile_size=1)
 cudaError_t dispatch_cutlass_hopper_runtime(
     const HopperGemmConfig& config,
     int M, int N, int K,
@@ -220,12 +227,23 @@ cudaError_t dispatch_cutlass_hopper_runtime(
     cutlass::bfloat16_t *d_D, int ldd,
     cudaStream_t stream = nullptr)
 {
-    return cutlass_hopper_gemm_launch(M, N, K, d_A, lda, d_B, ldb, d_D, ldd, config, stream);
+    if (config.tile_size == 0) {
+        // 128x256x64 tile
+        return cutlass_hopper_gemm_launch<Shape<_128, _256, _64>>(
+            M, N, K, d_A, lda, d_B, ldb, d_D, ldd, config, stream);
+    } else if (config.tile_size == 1) {
+        // 128x128x64 tile
+        return cutlass_hopper_gemm_launch<Shape<_128, _128, _64>>(
+            M, N, K, d_A, lda, d_B, ldb, d_D, ldd, config, stream);
+    } else {
+        return cudaErrorInvalidValue;
+    }
 }
 
-// PyTorch wrapper - simplified with fixed tile/cluster configuration
-// Only raster_order, decomposition, swizzle, and splits are runtime-configurable
+// PyTorch wrapper - configurable tile size and scheduler parameters
+// Runtime-configurable: tile_size (0: 128x256x64, 1: 128x128x64), raster_order, decomposition, swizzle, splits
 void sgemm_cutlass_hopper_autotune_bf16(
+    const int tile_size,
     const int raster_order,
     const int decomposition,
     const int swizzle,
@@ -275,13 +293,18 @@ void sgemm_cutlass_hopper_autotune_bf16(
 
     cudaStream_t stream = nullptr;
 
-    // Build config with runtime scheduler parameters
-    HopperGemmConfig config{raster_order, decomposition, swizzle, splits};
+    // Validate tile_size parameter
+    TORCH_CHECK(tile_size == 0 || tile_size == 1,
+                "tile_size must be 0 (128x256x64) or 1 (128x128x64)");
+
+    // Build config with tile size and runtime scheduler parameters
+    HopperGemmConfig config{tile_size, raster_order, decomposition, swizzle, splits};
 
     // Launch CUTLASS Hopper GEMM with specified config (alpha=1.0, beta=0.0 hard-coded)
     const cudaError_t err = dispatch_cutlass_hopper_runtime(
         config, M, N, K, d_A, lda, d_B, ldb, d_D, ldd, stream);
 
+    const char* tile_desc = (tile_size == 0) ? "128x256x64" : "128x128x64";
     TORCH_CHECK(err == cudaSuccess,
-                "CUTLASS Hopper GEMM (bfloat16, 128x128x64, 2x1x1) failed: ", cudaGetErrorString(err));
+                "CUTLASS Hopper GEMM (bfloat16, ", tile_desc, ", 1x1x1) failed: ", cudaGetErrorString(err));
 }

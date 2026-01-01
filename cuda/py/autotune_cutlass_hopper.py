@@ -95,10 +95,17 @@ DECOMP_SPLIT_K = 2
 DECOMP_STREAM_K = 3
 
 # Fixed configuration matching benchmark_hopper.cu
-# Tile: 128x128x64, Cluster: 2x1x1, only scheduler parameters are tunable
+# Tiles: 128x256x64 (tile_size=0) and 128x128x64 (tile_size=1)
+# Cluster: 2x1x1, scheduler parameters are tunable
 # Comprehensive configuration grid matching benchmarks.sh
 
-# Generate all combinations of decomposition, raster order, and swizzle
+# Tile size options
+TILE_SIZES = [
+    ("128x256x64", 0),
+    ("128x128x64", 1),
+]
+
+# Generate all combinations of tile size, decomposition, raster order, and swizzle
 DECOMPOSITIONS = [
     ("Heuristic", DECOMP_HEURISTIC),
     ("StreamK", DECOMP_STREAM_K),
@@ -119,32 +126,35 @@ SPLITS_VALUES = [1, 2, 3, 4]  # For SplitK decomposition
 HOPPER_CONFIG_METADATA = []
 config_id = 0
 
-for decomp_name, decomp_val in DECOMPOSITIONS:
-    for raster_name, raster_val in RASTER_ORDERS:
-        for swizzle in SWIZZLES:
-            if decomp_name == "SplitK":
-                # For SplitK, try different split values
-                for splits in SPLITS_VALUES:
+for tile_name, tile_val in TILE_SIZES:
+    for decomp_name, decomp_val in DECOMPOSITIONS:
+        for raster_name, raster_val in RASTER_ORDERS:
+            for swizzle in SWIZZLES:
+                if decomp_name == "SplitK":
+                    # For SplitK, try different split values
+                    for splits in SPLITS_VALUES:
+                        HOPPER_CONFIG_METADATA.append({
+                            "id": config_id,
+                            "name": f"{tile_name}_{decomp_name}_{raster_name}_Swz{swizzle}_Spl{splits}",
+                            "tile_size": tile_val,
+                            "raster_order": raster_val,
+                            "decomposition": decomp_val,
+                            "swizzle": swizzle,
+                            "splits": splits,
+                        })
+                        config_id += 1
+                else:
+                    # For other decompositions, splits is always 1
                     HOPPER_CONFIG_METADATA.append({
                         "id": config_id,
-                        "name": f"{decomp_name}_{raster_name}_Swz{swizzle}_Spl{splits}",
+                        "name": f"{tile_name}_{decomp_name}_{raster_name}_Swz{swizzle}",
+                        "tile_size": tile_val,
                         "raster_order": raster_val,
                         "decomposition": decomp_val,
                         "swizzle": swizzle,
-                        "splits": splits,
+                        "splits": 1,
                     })
                     config_id += 1
-            else:
-                # For other decompositions, splits is always 1
-                HOPPER_CONFIG_METADATA.append({
-                    "id": config_id,
-                    "name": f"{decomp_name}_{raster_name}_Swz{swizzle}",
-                    "raster_order": raster_val,
-                    "decomposition": decomp_val,
-                    "swizzle": swizzle,
-                    "splits": 1,
-                })
-                config_id += 1
 
 
 def benchmark_config(
@@ -184,7 +194,8 @@ def benchmark_config(
     N = b.size(1)  # b is (K x N) after transpose
     c = torch.empty((M, N), device="cuda", dtype=a.dtype)
 
-    # Extract config parameters (only scheduler params, tile/cluster are fixed)
+    # Extract config parameters (tile size + scheduler params)
+    tile_size = config_meta.get("tile_size", 1)  # Default to 128x128x64
     raster_order = config_meta.get("raster_order", RASTER_ORDER_HEURISTIC)
     decomposition = config_meta.get("decomposition", DECOMP_HEURISTIC)
     swizzle = config_meta.get("swizzle", 1)
@@ -203,7 +214,7 @@ def benchmark_config(
 
             start_estimate.record()
             for _ in range(estimate_iters):
-                kernel_fn(raster_order, decomposition, swizzle, splits, a, b, c)
+                kernel_fn(tile_size, raster_order, decomposition, swizzle, splits, a, b, c)
             end_estimate.record()
             torch.cuda.synchronize()
 
@@ -218,7 +229,7 @@ def benchmark_config(
         for _ in range(warmup):
             if flush_cache:
                 flush_l2_cache()
-            kernel_fn(raster_order, decomposition, swizzle, splits, a, b, c)
+            kernel_fn(tile_size, raster_order, decomposition, swizzle, splits, a, b, c)
 
         torch.cuda.synchronize()
 
@@ -232,7 +243,7 @@ def benchmark_config(
                 flush_l2_cache()
 
             start_events[i].record()
-            kernel_fn(raster_order, decomposition, swizzle, splits, a, b, c)
+            kernel_fn(tile_size, raster_order, decomposition, swizzle, splits, a, b, c)
             end_events[i].record()
 
         torch.cuda.synchronize()
@@ -440,9 +451,10 @@ def autotune_size(
     # Test all configurations
     for config_id in range(num_configs):
         config_meta = HOPPER_CONFIG_METADATA[config_id]
+        tile_name = "128x256x64" if config_meta['tile_size'] == 0 else "128x128x64"
         logger.info(f"\n📊 Testing Config {config_id}: {config_meta['name']}")
         logger.info(
-            f"   Tile: 128x128x64, Cluster: 2x1x1, Scheduler params: raster={config_meta['raster_order']}, decomp={config_meta['decomposition']}"
+            f"   Tile: {tile_name}, Cluster: 2x1x1, Scheduler params: raster={config_meta['raster_order']}, decomp={config_meta['decomposition']}"
         )
 
         result = benchmark_config(
@@ -740,11 +752,13 @@ def create_visualization(results: List[Dict], dtype: str, output_dir: Path):
     for filtered_idx, config_id in enumerate(filtered_configs):
         row_customdata = []
         meta = HOPPER_CONFIG_METADATA[config_id]
+        tile_name = "128x256x64" if meta['tile_size'] == 0 else "128x128x64"
         for size_idx, size in enumerate(heatmap_sizes):
             row_customdata.append(
                 [
                     config_id,
                     meta["name"],
+                    tile_name,
                 ]
             )
         customdata.append(row_customdata)

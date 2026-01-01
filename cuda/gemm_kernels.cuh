@@ -161,6 +161,7 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(
 // Note: alpha=1.0, beta=0.0 are hard-coded
 // Use get_num_cutlass_hopper_configs() to get the total number of available configs
 void sgemm_cutlass_hopper_autotune_bf16(
+    const int tile_size,
     const int raster_order,
     const int decomposition,
     const int swizzle,
