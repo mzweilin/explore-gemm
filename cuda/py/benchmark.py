@@ -399,8 +399,6 @@ def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100, flush_cache=Tru
     """
     # Warmup
     for _ in range(warmup):
-        if flush_cache:
-            flush_l2_cache()
         _ = kernel_fn(a, b)
 
     # Benchmark

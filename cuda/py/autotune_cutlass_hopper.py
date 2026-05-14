@@ -227,8 +227,6 @@ def benchmark_config(
 
         # Warmup to reach thermal/clock steady-state
         for _ in range(warmup):
-            if flush_cache:
-                flush_l2_cache()
             kernel_fn(tile_size, raster_order, decomposition, swizzle, splits, a, b, c)
 
         torch.cuda.synchronize()
@@ -332,8 +330,6 @@ def benchmark_pytorch(
 
         # Warmup to reach thermal/clock steady-state
         for _ in range(warmup):
-            if flush_cache:
-                flush_l2_cache()
             torch.matmul(a, b, out=c)
 
         torch.cuda.synchronize()
