@@ -83,8 +83,8 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 
-# Cache-flushing tensor size (16MB to flush typical L2 caches)
-_CACHE_FLUSH_SIZE = 4 * 1024 * 1024  # 16MB in float32 elements
+# Cache-flushing tensor size in bytes (equal to L2 cache size)
+_CACHE_FLUSH_SIZE = torch.cuda.get_device_properties().L2_cache_size
 
 # Global cache flush buffer (lazily initialized)
 _cache_flush_buffer = None

@@ -47,8 +47,8 @@ from cuda_extension_loader import create_cuda_extension
 from triton_kernel_gemm import matmul_persistent as triton_matmul
 
 
-# Cache-flushing tensor size (16MB to flush typical L2 caches)
-_CACHE_FLUSH_SIZE = 4 * 1024 * 1024  # 16MB in float32 elements
+# Cache-flushing tensor size in bytes (equal to L2 cache size)
+_CACHE_FLUSH_SIZE = torch.cuda.get_device_properties().L2_cache_size
 
 # Global cache flush buffer (lazily initialized)
 _cache_flush_buffer = None
