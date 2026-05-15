@@ -47,17 +47,22 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
     )
 
     if(DETECTED_COMPUTE_CAP)
+        # nvidia-smi returns one line per GPU; use the first entry.
+        string(REGEX REPLACE "[\r\n]+" ";" DETECTED_COMPUTE_CAP_LIST "${DETECTED_COMPUTE_CAP}")
+        list(GET DETECTED_COMPUTE_CAP_LIST 0 DETECTED_COMPUTE_CAP_FIRST)
+        string(STRIP "${DETECTED_COMPUTE_CAP_FIRST}" DETECTED_COMPUTE_CAP_FIRST)
+
         # Remove dot: "8.9" -> "89", "12.1" -> "121"
-        string(REPLACE "." "" DETECTED_ARCH ${DETECTED_COMPUTE_CAP})
+        string(REPLACE "." "" DETECTED_ARCH "${DETECTED_COMPUTE_CAP_FIRST}")
 
         # For Blackwell (SM121+), map to SM100
         # Blackwell GB10 reports compute capability 12.1, but uses sm_100
         if(DETECTED_ARCH GREATER_EQUAL 121)
             set(CMAKE_CUDA_ARCHITECTURES "100")
-            message(STATUS "Auto-detected CUDA architecture: 100 (Blackwell, compute capability ${DETECTED_COMPUTE_CAP})")
+            message(STATUS "Auto-detected CUDA architecture: 100 (Blackwell, compute capability ${DETECTED_COMPUTE_CAP_FIRST})")
         else()
             set(CMAKE_CUDA_ARCHITECTURES ${DETECTED_ARCH})
-            message(STATUS "Auto-detected CUDA architecture: ${DETECTED_ARCH} (compute capability ${DETECTED_COMPUTE_CAP})")
+            message(STATUS "Auto-detected CUDA architecture: ${DETECTED_ARCH} (compute capability ${DETECTED_COMPUTE_CAP_FIRST})")
         endif()
     else()
         # Default to common architecture if detection fails
@@ -221,8 +226,13 @@ if(NOT DEFINED BUILD_HOPPER_KERNELS)
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
         if(GPU_COMPUTE_CAP_OUTPUT)
+            # nvidia-smi returns one line per GPU; use the first entry.
+            string(REGEX REPLACE "[\r\n]+" ";" GPU_COMPUTE_CAP_LIST "${GPU_COMPUTE_CAP_OUTPUT}")
+            list(GET GPU_COMPUTE_CAP_LIST 0 GPU_COMPUTE_CAP_FIRST)
+            string(STRIP "${GPU_COMPUTE_CAP_FIRST}" GPU_COMPUTE_CAP_FIRST)
+
             # Remove the dot to convert "8.9" to "89"
-            string(REPLACE "." "" GPU_COMPUTE_CAPABILITY ${GPU_COMPUTE_CAP_OUTPUT})
+            string(REPLACE "." "" GPU_COMPUTE_CAPABILITY "${GPU_COMPUTE_CAP_FIRST}")
             message(STATUS "Detected GPU compute capability from nvidia-smi: SM${GPU_COMPUTE_CAPABILITY}")
         else()
             message(WARNING "Could not detect GPU compute capability. Assuming SM89 (Ada Lovelace).")
