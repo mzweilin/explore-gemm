@@ -11,11 +11,16 @@
 
 // Tolerance for numerical comparison
 constexpr float TOLERANCE = 1e-2f;
+constexpr float FP16_TOL_SMALL = 2e-2f;
+constexpr float FP16_TOL_MEDIUM = 4e-2f;
+constexpr float FP16_TOL_LARGE = 8e-2f;
+constexpr float BF16_TOL_SMALL = 5e-1f;
+constexpr float BF16_TOL_MEDIUM = 1.2f;
 
 // Helper function to check if tensors are close
 bool tensors_are_close(const torch::Tensor &a, const torch::Tensor &b, float tol = TOLERANCE)
 {
-    auto diff = (a - b).abs();
+    auto diff = (a.to(torch::kFloat32) - b.to(torch::kFloat32)).abs();
     auto max_diff = diff.max().item<float>();
     return max_diff < tol;
 }
@@ -28,11 +33,10 @@ TEST_CASE("SGEMM CUTLASS FP16 - Basic functionality", "[cutlass][fp16]")
     {
         int M = 128, N = 128, K = 128;
         auto options_fp16 = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA);
-        auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
         auto A = torch::rand({M, K}, options_fp16);
         auto B = torch::rand({K, N}, options_fp16);
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_fp16);
 
         float alpha = 1.0f, beta = 0.0f;
 
@@ -42,18 +46,17 @@ TEST_CASE("SGEMM CUTLASS FP16 - Basic functionality", "[cutlass][fp16]")
         // Compare with PyTorch reference
         auto ref = torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, FP16_TOL_SMALL));
     }
 
     SECTION("Medium matrix - 256x256")
     {
         int M = 256, N = 256, K = 256;
         auto options_fp16 = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA);
-        auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
         auto A = torch::rand({M, K}, options_fp16);
         auto B = torch::rand({K, N}, options_fp16);
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_fp16);
 
         float alpha = 1.0f, beta = 0.0f;
 
@@ -61,18 +64,17 @@ TEST_CASE("SGEMM CUTLASS FP16 - Basic functionality", "[cutlass][fp16]")
 
         auto ref = torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, FP16_TOL_MEDIUM));
     }
 
     SECTION("Large matrix - 512x512")
     {
         int M = 512, N = 512, K = 512;
         auto options_fp16 = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA);
-        auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
         auto A = torch::rand({M, K}, options_fp16);
         auto B = torch::rand({K, N}, options_fp16);
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_fp16);
 
         float alpha = 1.0f, beta = 0.0f;
 
@@ -80,18 +82,17 @@ TEST_CASE("SGEMM CUTLASS FP16 - Basic functionality", "[cutlass][fp16]")
 
         auto ref = torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, FP16_TOL_LARGE));
     }
 
     SECTION("Non-square matrix - 256x512x128")
     {
         int M = 256, N = 512, K = 128;
         auto options_fp16 = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA);
-        auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
         auto A = torch::rand({M, K}, options_fp16);
         auto B = torch::rand({K, N}, options_fp16);
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_fp16);
 
         float alpha = 1.0f, beta = 0.0f;
 
@@ -99,7 +100,7 @@ TEST_CASE("SGEMM CUTLASS FP16 - Basic functionality", "[cutlass][fp16]")
 
         auto ref = torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, FP16_TOL_SMALL));
     }
 }
 
@@ -109,26 +110,25 @@ TEST_CASE("SGEMM CUTLASS FP16 - Alpha/Beta scaling", "[cutlass][fp16][scaling]")
 
     int M = 128, N = 128, K = 128;
     auto options_fp16 = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA);
-    auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
     auto A = torch::rand({M, K}, options_fp16);
     auto B = torch::rand({K, N}, options_fp16);
 
     SECTION("Alpha = 2.0, Beta = 0.0")
     {
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_fp16);
         float alpha = 2.0f, beta = 0.0f;
 
         sgemm_cutlass_fp16(A, B, C, alpha, beta);
 
         auto ref = alpha * torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, FP16_TOL_MEDIUM));
     }
 
     SECTION("Alpha = 1.0, Beta = 1.0")
     {
-        auto C = torch::rand({M, N}, options_fp32);
+        auto C = torch::rand({M, N}, options_fp16);
         auto C_original = C.clone();
         float alpha = 1.0f, beta = 1.0f;
 
@@ -136,12 +136,12 @@ TEST_CASE("SGEMM CUTLASS FP16 - Alpha/Beta scaling", "[cutlass][fp16][scaling]")
 
         auto ref = alpha * torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32)) + beta * C_original;
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, FP16_TOL_SMALL));
     }
 
     SECTION("Alpha = 0.5, Beta = 0.5")
     {
-        auto C = torch::rand({M, N}, options_fp32);
+        auto C = torch::rand({M, N}, options_fp16);
         auto C_original = C.clone();
         float alpha = 0.5f, beta = 0.5f;
 
@@ -149,7 +149,7 @@ TEST_CASE("SGEMM CUTLASS FP16 - Alpha/Beta scaling", "[cutlass][fp16][scaling]")
 
         auto ref = alpha * torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32)) + beta * C_original;
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, FP16_TOL_SMALL));
     }
 }
 
@@ -161,11 +161,10 @@ TEST_CASE("SGEMM CUTLASS BF16 - Basic functionality", "[cutlass][bf16]")
     {
         int M = 128, N = 128, K = 128;
         auto options_bf16 = torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA);
-        auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
         auto A = torch::rand({M, K}, options_bf16);
         auto B = torch::rand({K, N}, options_bf16);
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_bf16);
 
         float alpha = 1.0f, beta = 0.0f;
 
@@ -173,18 +172,17 @@ TEST_CASE("SGEMM CUTLASS BF16 - Basic functionality", "[cutlass][bf16]")
 
         auto ref = torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, BF16_TOL_SMALL));
     }
 
     SECTION("Medium matrix - 256x256")
     {
         int M = 256, N = 256, K = 256;
         auto options_bf16 = torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA);
-        auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
         auto A = torch::rand({M, K}, options_bf16);
         auto B = torch::rand({K, N}, options_bf16);
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_bf16);
 
         float alpha = 1.0f, beta = 0.0f;
 
@@ -192,18 +190,17 @@ TEST_CASE("SGEMM CUTLASS BF16 - Basic functionality", "[cutlass][bf16]")
 
         auto ref = torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, BF16_TOL_MEDIUM));
     }
 
     SECTION("Large matrix - 512x512")
     {
         int M = 512, N = 512, K = 512;
         auto options_bf16 = torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA);
-        auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
         auto A = torch::rand({M, K}, options_bf16);
         auto B = torch::rand({K, N}, options_bf16);
-        auto C = torch::zeros({M, N}, options_fp32);
+        auto C = torch::zeros({M, N}, options_bf16);
 
         float alpha = 1.0f, beta = 0.0f;
 
@@ -211,7 +208,7 @@ TEST_CASE("SGEMM CUTLASS BF16 - Basic functionality", "[cutlass][bf16]")
 
         auto ref = torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32));
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, BF16_TOL_MEDIUM));
     }
 }
 
@@ -221,14 +218,13 @@ TEST_CASE("SGEMM CUTLASS BF16 - Alpha/Beta scaling", "[cutlass][bf16][scaling]")
 
     int M = 128, N = 128, K = 128;
     auto options_bf16 = torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA);
-    auto options_fp32 = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
 
     auto A = torch::rand({M, K}, options_bf16);
     auto B = torch::rand({K, N}, options_bf16);
 
     SECTION("Alpha = 1.0, Beta = 1.0")
     {
-        auto C = torch::rand({M, N}, options_fp32);
+        auto C = torch::rand({M, N}, options_bf16);
         auto C_original = C.clone();
         float alpha = 1.0f, beta = 1.0f;
 
@@ -236,7 +232,7 @@ TEST_CASE("SGEMM CUTLASS BF16 - Alpha/Beta scaling", "[cutlass][bf16][scaling]")
 
         auto ref = alpha * torch::matmul(A.to(torch::kFloat32), B.to(torch::kFloat32)) + beta * C_original;
 
-        REQUIRE(tensors_are_close(C, ref, TOLERANCE));
+        REQUIRE(tensors_are_close(C, ref, BF16_TOL_SMALL));
     }
 }
 

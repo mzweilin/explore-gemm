@@ -477,40 +477,8 @@ def main(kernel: str, iterations: int, size: int, dtype: str):
     a = torch.randn((M, K), device="cuda", dtype=torch_dtype)
     b = torch.randn((K, N), device="cuda", dtype=torch_dtype)
 
-    # Determine output dtype based on kernel type
-    # - PyTorch and warptiling: output matches input dtype
-    # - Tensor Core and CUTLASS kernels: output FP32 (they accumulate in FP32)
-    # - CUTLASS Hopper BF16: output BF16 (matches input dtype)
-    # - FP32-only kernels: output FP32
-    if kernel in ["pytorch", "warptiling"]:
-        output_dtype = torch_dtype
-    elif kernel in [
-        "cutlass_hopper_bf16",
-        "cutlass_hopper_bf16_tma_warp_specialized_auto",
-        "cutlass_hopper_bf16_tma_warp_specialized_constant",
-        "cutlass_hopper_bf16_tma_warp_specialized_persistent_constant",
-        "cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant",
-        "cutlass_hopper_bf16_tma_warp_specialized_streamk_constant",
-    ]:
-        # Hopper kernels expect BF16 output to match input
-        output_dtype = torch_dtype
-    elif kernel in [
-        "tensorcore_naive_fp16",
-        "tensorcore_naive_bf16",
-        "tensorcore_fp16",
-        "tensorcore_bf16",
-        "tensorcore_db_fp16",
-        "tensorcore_db_bf16",
-        "tensorcore_async_fp16",
-        "tensorcore_async_bf16",
-        "cutlass_fp16",
-        "cutlass_bf16",
-        "cutlass_fp32",
-    ]:
-        output_dtype = torch.float32
-    else:
-        # FP32-only kernels
-        output_dtype = torch.float32
+    # All kernels now use the same output dtype as their inputs.
+    output_dtype = torch_dtype
 
     c = torch.empty((M, N), device="cuda", dtype=output_dtype)
     logger.success("✅ Input and output tensors allocated")
