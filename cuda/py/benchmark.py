@@ -1177,7 +1177,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
         if len(size_results) == 0:
             logger.warning("⚠️  No kernels completed for this size, skipping...\n")
             # Clean up and continue
-            del a, b
+            del a, b, c
             torch.cuda.empty_cache()
             continue
 
@@ -1185,7 +1185,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
         if "PyTorch" not in size_results:
             logger.warning("⚠️  PyTorch baseline missing, skipping comparison\n")
             # Clean up and continue
-            del a, b
+            del a, b, c
             torch.cuda.empty_cache()
             continue
 
