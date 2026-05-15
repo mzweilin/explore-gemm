@@ -966,7 +966,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
 
         # Calculate expected memory usage
         memory_per_matrix_gb = (M * K * element_size) / 1e9
-        total_memory_gb = 3 * memory_per_matrix_gb  # A, B, C (output is FP32)
+        total_memory_gb = 3 * memory_per_matrix_gb  # A, B, C (all use selected dtype)
         logger.info(
             f"💾 Expected memory usage: {total_memory_gb:.2f} GB ({memory_per_matrix_gb:.2f} GB per matrix)"
         )
