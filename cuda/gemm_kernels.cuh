@@ -64,7 +64,7 @@ void sgemm_tensorcore_bf16(const torch::Tensor &matrix_a, const torch::Tensor &m
                            torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with Tensor Cores and Double Buffering
-// Input: FP16 or BF16, Output: FP32
+// Input/output use same dtype (FP16 or BF16), like PyTorch behavior
 // Overlaps memory loads with computation for better performance
 void sgemm_tensorcore_double_buffered_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                            torch::Tensor &output_matrix, float alpha, float beta);
@@ -73,7 +73,7 @@ void sgemm_tensorcore_double_buffered_bf16(const torch::Tensor &matrix_a, const 
                                            torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with Tensor Cores and Async Pipeline (cp.async)
-// Input: FP16 or BF16, Output: FP32
+// Input/output use same dtype (FP16 or BF16), like PyTorch behavior
 // Uses async memory copies with multi-stage pipeline for maximum overlap
 // Requires SM 8.0+ (Ampere and newer)
 void sgemm_tensorcore_async_fp16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
@@ -83,7 +83,7 @@ void sgemm_tensorcore_async_bf16(const torch::Tensor &matrix_a, const torch::Ten
                                  torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with CUTLASS library
-// Input: FP16, BF16, or FP32, Output: FP32
+// Input/output use same dtype, like PyTorch behavior
 // Uses NVIDIA CUTLASS library for highly optimized operations:
 //  - FP16/BF16: Tensor Core operations
 //  - FP32: SIMT operations
@@ -97,7 +97,7 @@ void sgemm_cutlass_fp32(const torch::Tensor &matrix_a, const torch::Tensor &matr
                         torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with CUTLASS library - Autotunable configurations
-// Input: FP16 or BF16, Output: FP32
+// Input/output use same dtype (FP16 or BF16), like PyTorch behavior
 // Supports multiple tile configurations selected by config_id
 // Use get_num_cutlass_configs() to get the total number of available configs
 void sgemm_cutlass_autotune_fp16(int config_id, const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
@@ -155,7 +155,7 @@ void sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(
     torch::Tensor &output_matrix);
 
 // SGEMM with CUTLASS library - Hopper architecture (SM90) Autotunable version
-// Input: BF16 only (FP16 not supported), Output: FP32
+// Input: BF16 only (FP16 not supported), Output: BF16
 // Uses CUTLASS 3.x Collective Builder API with configurable tile and cluster shapes
 // Requires Hopper architecture (SM 9.0+) with TMA (Tensor Memory Accelerator) support
 // Note: alpha=1.0, beta=0.0 are hard-coded
