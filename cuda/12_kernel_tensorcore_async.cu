@@ -27,7 +27,7 @@ __global__ void
 sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                float alpha, const InputType *matrix_a,
                                const InputType *matrix_b, float beta,
-                               float *matrix_c)
+                               InputType *matrix_c)
 {
     // Thread and warp identification
     const int warp_id = threadIdx.x / 32;
@@ -45,10 +45,12 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
     constexpr int NUM_STAGES = 2;
     __shared__ InputType tile_a[NUM_STAGES][BM * BK];
     __shared__ InputType tile_b[NUM_STAGES][BK * BN];
+    __shared__ float c_tile_smem[BLOCK_ROW_WARPS * BLOCK_COL_WARPS][WMMA_M * WMMA_N];
 
     const InputType *global_a = matrix_a;
     const InputType *global_b = matrix_b;
-    float *global_c = matrix_c;
+    InputType *global_c = matrix_c;
+    float *warp_c_smem = c_tile_smem[warp_id];
 
     // WMMA fragments
     nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, InputType, nvcuda::wmma::row_major> a_frag;
@@ -197,19 +199,32 @@ sgemm_tensorcore_async_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
             int global_row = blockIdx.y * BM + c_tile_row * WMMA_M;
             int global_col = blockIdx.x * BN + c_tile_col * WMMA_N;
 
-            float *c_ptr = global_c + global_row * num_cols_b + global_col;
+            InputType *c_ptr = global_c + global_row * num_cols_b + global_col;
 
-            // Load existing C and apply alpha/beta scaling
-            nvcuda::wmma::load_matrix_sync(c_frag, c_ptr, num_cols_b, nvcuda::wmma::mem_row_major);
+            if (beta != 0.0f)
+            {
+                load_output_tile_to_smem<InputType, WMMA_M, WMMA_N>(c_ptr, num_cols_b, warp_c_smem);
+                __syncwarp();
+                nvcuda::wmma::load_matrix_sync(c_frag, warp_c_smem, WMMA_N, nvcuda::wmma::mem_row_major);
 
 #pragma unroll
-            for (int t = 0; t < c_frag.num_elements; ++t)
+                for (int t = 0; t < c_frag.num_elements; ++t)
+                {
+                    c_frag.x[t] = alpha * acc_frag[i][j].x[t] + beta * c_frag.x[t];
+                }
+            }
+            else
             {
-                c_frag.x[t] = alpha * acc_frag[i][j].x[t] + beta * c_frag.x[t];
+#pragma unroll
+                for (int t = 0; t < c_frag.num_elements; ++t)
+                {
+                    c_frag.x[t] = alpha * acc_frag[i][j].x[t];
+                }
             }
 
-            // Write result back
-            nvcuda::wmma::store_matrix_sync(c_ptr, c_frag, num_cols_b, nvcuda::wmma::mem_row_major);
+            nvcuda::wmma::store_matrix_sync(warp_c_smem, c_frag, WMMA_N, nvcuda::wmma::mem_row_major);
+            __syncwarp();
+            store_output_tile_from_smem<InputType, WMMA_M, WMMA_N>(warp_c_smem, c_ptr, num_cols_b);
         }
     }
 }
@@ -230,7 +245,7 @@ void sgemm_tensorcore_async_launcher(
                 std::string("Matrix A must be ") + dtype_name + " for Tensor Core async kernel");
     TORCH_CHECK(matrix_b.dtype() == expected_dtype,
                 std::string("Matrix B must be ") + dtype_name + " for Tensor Core async kernel");
-    TORCH_CHECK(output_matrix.dtype() == torch::kFloat32, "Matrix C must be float32");
+    TORCH_CHECK(output_matrix.dtype() == expected_dtype, "Matrix C must have the same dtype as the inputs");
     TORCH_CHECK(matrix_a.dim() == 2, "Matrix A must be 2D");
     TORCH_CHECK(matrix_b.dim() == 2, "Matrix B must be 2D");
 
@@ -245,7 +260,7 @@ void sgemm_tensorcore_async_launcher(
 
     const auto *d_matrix_a = reinterpret_cast<const InputType *>(matrix_a.data_ptr<TorchType>());
     const auto *d_matrix_b = reinterpret_cast<const InputType *>(matrix_b.data_ptr<TorchType>());
-    float *d_output_matrix = output_matrix.data_ptr<float>();
+    InputType *d_output_matrix = reinterpret_cast<InputType *>(output_matrix.data_ptr<TorchType>());
 
     constexpr int BLOCK_ROW_WARPS = 4;
     constexpr int BLOCK_COL_WARPS = 4;

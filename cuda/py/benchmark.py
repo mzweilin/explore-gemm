@@ -116,59 +116,44 @@ logger.info("🚀 Loading CUDA kernels...")
 cuda_kernels = create_cuda_extension(verbose=True, load_hopper_kernels=True)
 
 
-def cuda_naive_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_naive_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for naive CUDA GEMM kernel."""
-    # Create output tensor on CUDA device
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_naive(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def cuda_coalesced_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_coalesced_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for coalesced global memory CUDA GEMM kernel."""
-    # Create output tensor on CUDA device
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_global_mem_coalesce(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def cuda_shared_mem_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_shared_mem_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for shared memory CUDA GEMM kernel."""
-    # Create output tensor on CUDA device
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_shared_mem(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def cuda_blocktiling_1d_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_blocktiling_1d_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for 1D block tiling CUDA GEMM kernel."""
-    # Create output tensor on CUDA device
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_blocktiling_1d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def cuda_blocktiling_2d_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_blocktiling_2d_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for 2D block tiling CUDA GEMM kernel."""
-    # Create output tensor on CUDA device
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_blocktiling_2d(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_vectorize_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for vectorized CUDA GEMM kernel."""
-    # Create output tensor on CUDA device
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_vectorize(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for warptiling CUDA GEMM kernel (dtype-aware)."""
-    # Create output tensor on CUDA device with same dtype as input (like PyTorch)
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
-
     # Dispatch to appropriate warptiling kernel based on input dtype
     if a.dtype == torch.float32:
         cuda_kernels.sgemm_warptiling_default(a, b, c, 1.0, 0.0)  # type: ignore
@@ -182,214 +167,172 @@ def cuda_warptiling_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 
 
-def cuda_tensorcore_naive_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_naive_fp16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for naive Tensor Core CUDA GEMM kernel with FP16 inputs.
 
     This is a baseline implementation without optimizations.
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_naive_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_naive_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_tensorcore_naive_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_naive_bf16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for naive Tensor Core CUDA GEMM kernel with BF16 inputs.
 
     This is a baseline implementation without optimizations.
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_naive_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_naive_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_tensorcore_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_fp16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs.
 
-    Note: Tensor Cores accumulate in FP32 for numerical stability, so output is FP32.
-    This differs from PyTorch which returns FP16. To match PyTorch behavior exactly,
-    we convert the output back to FP16.
+    Tensor Cores accumulate in FP32 for numerical stability and down-convert on store
+    so the output matches PyTorch's FP16 behavior.
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_tensorcore_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_bf16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs.
 
-    Note: Tensor Cores accumulate in FP32 for numerical stability, so output is FP32.
-    This differs from PyTorch which returns BF16. To match PyTorch behavior exactly,
-    we convert the output back to BF16.
+    Tensor Cores accumulate in FP32 for numerical stability and down-convert on store
+    so the output matches PyTorch's BF16 behavior.
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_tensorcore_db_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_db_fp16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs and double buffering.
 
     Double buffering overlaps memory loads with computation for better performance.
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_double_buffered_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_tensorcore_db_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_db_bf16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs and double buffering.
 
     Double buffering overlaps memory loads with computation for better performance.
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_double_buffered_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_tensorcore_async_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_async_fp16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for Tensor Core CUDA GEMM kernel with FP16 inputs and async pipeline.
 
     Async pipeline uses cp.async for maximum memory/compute overlap.
     Requires SM 8.0+ (Ampere and newer).
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_async_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_async_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_tensorcore_async_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_tensorcore_async_bf16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for Tensor Core CUDA GEMM kernel with BF16 inputs and async pipeline.
 
     Async pipeline uses cp.async for maximum memory/compute overlap.
     Requires SM 8.0+ (Ampere and newer).
     """
-    # Tensor Cores output FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_tensorcore_async_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_tensorcore_async_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_cutlass_fp16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_fp16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for CUTLASS GEMM kernel with FP16 inputs.
 
     Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations.
     """
-    # CUTLASS outputs FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_cutlass_fp16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_cutlass_fp16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_cutlass_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_bf16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for CUTLASS GEMM kernel with BF16 inputs.
 
     Uses NVIDIA CUTLASS library for highly optimized Tensor Core operations.
     """
-    # CUTLASS outputs FP32 for precision
-    c_fp32 = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
-    cuda_kernels.sgemm_cutlass_bf16(a, b, c_fp32, 1.0, 0.0)  # type: ignore
-    # Convert to input dtype to match PyTorch behavior
-    return c_fp32.to(a.dtype)
+    cuda_kernels.sgemm_cutlass_bf16(a, b, c, 1.0, 0.0)  # type: ignore
+    return c
 
 
-def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_fp32_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for CUTLASS GEMM kernel with FP32 inputs.
 
     Uses NVIDIA CUTLASS library with SIMT operations for FP32.
     """
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
     cuda_kernels.sgemm_cutlass_fp32(a, b, c, 1.0, 0.0)  # type: ignore
     return c
 
 
-def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_hopper_bf16_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """Wrapper for CUTLASS Hopper GEMM kernel with BF16 inputs (default variant).
 
     Uses NVIDIA CUTLASS 3.x Collective Builder API for Hopper (SM90+) with warp specialization.
     Default: Pingpong with constant stage count.
     """
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16(a, b, c)  # type: ignore
     return c
 
 
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_auto_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """CUTLASS Hopper: TMA Warp Specialized with Auto stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_auto(a, b, c)  # type: ignore
     return c
 
 
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_constant_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """CUTLASS Hopper: TMA Warp Specialized with Constant stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_constant(a, b, c)  # type: ignore
     return c
 
 
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """CUTLASS Hopper: TMA Warp Specialized Persistent with Constant stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_persistent_constant(a, b, c)  # type: ignore
     return c
 
 
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """CUTLASS Hopper: TMA Warp Specialized Pingpong with Constant stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_pingpong_constant(a, b, c)  # type: ignore
     return c
 
 
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_streamk_auto_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_streamk_auto_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """CUTLASS Hopper: TMA Warp Specialized Stream-K with Auto stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_auto(a, b, c)  # type: ignore
     return c
 
 
-def cuda_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def cuda_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """CUTLASS Hopper: TMA Warp Specialized Stream-K with Constant stage count."""
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.bfloat16)
     cuda_kernels.sgemm_cutlass_hopper_bf16_tma_warp_specialized_streamk_constant(a, b, c)  # type: ignore
     return c
 
 
-def torch_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def torch_gemm(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
     """PyTorch reference implementation.
 
-    Preallocates output tensor to match the behavior of custom CUTLASS kernels
-    for fair performance comparison.
+    Uses preallocated output tensor for fair performance comparison.
     """
-    # Preallocate output tensor (same dtype as input)
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
     torch.matmul(a, b, out=c)
     return c
 
 
-def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100, flush_cache=True):
+def benchmark_kernel(kernel_fn, a, b, c, warmup=10, iterations=100, flush_cache=True):
     """Benchmark a GEMM kernel function.
 
     Args:
         kernel_fn: Kernel function to benchmark
         a: Input matrix A
         b: Input matrix B
+        c: Preallocated output matrix C
         warmup: Number of warmup iterations
         iterations: Number of benchmark iterations
         flush_cache: Whether to flush L2 cache between iterations
@@ -399,7 +342,7 @@ def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100, flush_cache=Tru
     """
     # Warmup
     for _ in range(warmup):
-        _ = kernel_fn(a, b)
+        _ = kernel_fn(a, b, c)
 
     # Benchmark
     torch.cuda.synchronize()
@@ -412,7 +355,7 @@ def benchmark_kernel(kernel_fn, a, b, warmup=10, iterations=100, flush_cache=Tru
             flush_l2_cache()
 
         start_events[i].record()
-        _ = kernel_fn(a, b)
+        _ = kernel_fn(a, b, c)
         end_events[i].record()
 
     torch.cuda.synchronize()
@@ -1034,6 +977,8 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
             # Generate random inputs with specified dtype
             a = torch.randn((M, K), device="cuda", dtype=torch_dtype)
             b = torch.randn((K, N), device="cuda", dtype=torch_dtype)
+            # Preallocate output tensor with same dtype as inputs
+            c = torch.empty((M, N), device="cuda", dtype=torch_dtype)
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 logger.warning(
@@ -1198,7 +1143,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
         for kernel_name, kernel_fn, emoji in kernels:
             logger.info(f"\n{emoji} Benchmarking {kernel_name}...")
             try:
-                avg_ms, min_ms, max_ms = benchmark_kernel(kernel_fn, a, b)
+                avg_ms, min_ms, max_ms = benchmark_kernel(kernel_fn, a, b, c)
                 tflops, bandwidth = calculate_metrics(M, N, K, avg_ms, element_size)
 
                 size_results[kernel_name] = {
@@ -1280,7 +1225,7 @@ def run_benchmarks(kernels_to_run: List[str], dtype: str = "float32"):
         logger.info("\n")
 
         # Clean up GPU memory after each size
-        del a, b
+        del a, b, c
         torch.cuda.empty_cache()
 
     # Create results DataFrame

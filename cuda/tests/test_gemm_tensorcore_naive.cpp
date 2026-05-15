@@ -22,7 +22,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         // Compute expected result using PyTorch (convert to FP32 for matmul)
         auto a_fp32 = a.to(torch::kFloat32);
@@ -35,7 +35,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
         // Check results match (relaxed tolerance for FP16)
         float diff = max_diff(c, expected);
         std::cout << "Naive 256x256 FP16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 1e-2f);  // FP16 has lower precision
+        REQUIRE(diff < 4e-2f);
     }
 
     SECTION("Medium matrix - 512x512") {
@@ -45,7 +45,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         auto a_fp32 = a.to(torch::kFloat32);
         auto b_fp32 = b.to(torch::kFloat32);
@@ -54,7 +54,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
 
         float diff = max_diff(c, expected);
         std::cout << "Naive 512x512 FP16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 2e-2f);
+        REQUIRE(diff < 8e-2f);
     }
 
     SECTION("Large matrix - 1024x1024") {
@@ -64,7 +64,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         auto a_fp32 = a.to(torch::kFloat32);
         auto b_fp32 = b.to(torch::kFloat32);
@@ -73,7 +73,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
 
         float diff = max_diff(c, expected);
         std::cout << "Naive 1024x1024 FP16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 3e-2f);
+        REQUIRE(diff < 1.6e-1f);
     }
 
     SECTION("Rectangular matrix - 512x1024x512") {
@@ -83,7 +83,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         auto a_fp32 = a.to(torch::kFloat32);
         auto b_fp32 = b.to(torch::kFloat32);
@@ -92,7 +92,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Basic functionality", "[sgemm_tensorco
 
         float diff = max_diff(c, expected);
         std::cout << "Naive 512x1024x512 FP16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 2e-2f);
+        REQUIRE(diff < 1.6e-1f);
     }
 }
 
@@ -108,7 +108,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         // Compute expected result using PyTorch (convert to FP32 for matmul)
         auto a_fp32 = a.to(torch::kFloat32);
@@ -121,7 +121,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
         // Check results match (relaxed tolerance for BF16)
         float diff = max_diff(c, expected);
         std::cout << "Naive 256x256 BF16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 2e-2f);  // BF16 has lower precision
+        REQUIRE(diff < 3e-1f);
     }
 
     SECTION("Medium matrix - 512x512") {
@@ -131,7 +131,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         auto a_fp32 = a.to(torch::kFloat32);
         auto b_fp32 = b.to(torch::kFloat32);
@@ -140,7 +140,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
 
         float diff = max_diff(c, expected);
         std::cout << "Naive 512x512 BF16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 3e-2f);
+        REQUIRE(diff < 6e-1f);
     }
 
     SECTION("Large matrix - 1024x1024") {
@@ -150,7 +150,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         auto a_fp32 = a.to(torch::kFloat32);
         auto b_fp32 = b.to(torch::kFloat32);
@@ -159,7 +159,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
 
         float diff = max_diff(c, expected);
         std::cout << "Naive 1024x1024 BF16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 4e-2f);
+        REQUIRE(diff < 1.2f);
     }
 
     SECTION("Rectangular matrix - 512x1024x512") {
@@ -169,7 +169,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         auto a_fp32 = a.to(torch::kFloat32);
         auto b_fp32 = b.to(torch::kFloat32);
@@ -178,7 +178,7 @@ TEST_CASE("SGEMM Tensor Core Naive BF16 - Basic functionality", "[sgemm_tensorco
 
         float diff = max_diff(c, expected);
         std::cout << "Naive 512x1024x512 BF16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 3e-2f);
+        REQUIRE(diff < 1.2f);
     }
 }
 
@@ -194,7 +194,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Alpha/Beta scaling", "[sgemm_tensorcor
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
-        auto c = torch::zeros({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::zeros({M, N}, a.options());
 
         auto a_fp32 = a.to(torch::kFloat32);
         auto b_fp32 = b.to(torch::kFloat32);
@@ -203,7 +203,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Alpha/Beta scaling", "[sgemm_tensorcor
 
         float diff = max_diff(c, expected);
         std::cout << "Naive Alpha=2.0, Beta=0.0 FP16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 3e-2f);
+        REQUIRE(diff < 1.6e-1f);
     }
 
     SECTION("Alpha = 1.0, Beta = 1.0") {
@@ -212,7 +212,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Alpha/Beta scaling", "[sgemm_tensorcor
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
-        auto c = torch::rand({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::rand({M, N}, a.options());
         auto c_orig = c.clone();
 
         auto a_fp32 = a.to(torch::kFloat32);
@@ -222,7 +222,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Alpha/Beta scaling", "[sgemm_tensorcor
 
         float diff = max_diff(c, expected);
         std::cout << "Naive Alpha=1.0, Beta=1.0 FP16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 2e-2f);
+        REQUIRE(diff < 8e-2f);
     }
 
     SECTION("Alpha = 0.5, Beta = 1.5") {
@@ -231,7 +231,7 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Alpha/Beta scaling", "[sgemm_tensorcor
 
         auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
         auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA));
-        auto c = torch::rand({M, N}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+        auto c = torch::rand({M, N}, a.options());
         auto c_orig = c.clone();
 
         auto a_fp32 = a.to(torch::kFloat32);
@@ -241,6 +241,6 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Alpha/Beta scaling", "[sgemm_tensorcor
 
         float diff = max_diff(c, expected);
         std::cout << "Naive Alpha=0.5, Beta=1.5 FP16 max_diff: " << diff << std::endl;
-        REQUIRE(diff < 2e-2f);
+        REQUIRE(diff < 4e-2f);
     }
 }

@@ -251,13 +251,10 @@ def test_fp16_kernels(cuda_kernels, fp16_kernel_name, matrix_size):
     # PyTorch reference
     expected = torch.matmul(a, b)
 
-    # Tensor core kernels output FP32
-    output_dtype = torch.float32
-    result_fp32 = torch.empty((M, N), device="cuda", dtype=output_dtype)
+    result = torch.empty((M, N), device="cuda", dtype=torch.float16)
 
     try:
-        run_kernel(fp16_kernel_name, cuda_kernels, a, b, result_fp32)
-        result = result_fp32.to(torch.float16)
+        run_kernel(fp16_kernel_name, cuda_kernels, a, b, result)
     except RuntimeError as e:
         if "must be multiple of" in str(e) or "must be power of 2" in str(e):
             pytest.skip(
@@ -312,13 +309,10 @@ def test_bf16_kernels(cuda_kernels, bf16_kernel_name, matrix_size):
     # PyTorch reference
     expected = torch.matmul(a, b)
 
-    # Tensor core kernels output FP32
-    output_dtype = torch.float32
-    result_fp32 = torch.empty((M, N), device="cuda", dtype=output_dtype)
+    result = torch.empty((M, N), device="cuda", dtype=torch.bfloat16)
 
     try:
-        run_kernel(bf16_kernel_name, cuda_kernels, a, b, result_fp32)
-        result = result_fp32.to(torch.bfloat16)
+        run_kernel(bf16_kernel_name, cuda_kernels, a, b, result)
     except RuntimeError as e:
         if "must be multiple of" in str(e) or "must be power of 2" in str(e):
             pytest.skip(

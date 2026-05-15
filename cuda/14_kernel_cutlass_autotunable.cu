@@ -12,7 +12,6 @@
 
 using ElementAccumulator = float;
 using ElementCompute = float;
-using ElementOutput = float;
 
 using LayoutA = cutlass::layout::RowMajor;
 using LayoutB = cutlass::layout::RowMajor;
@@ -51,6 +50,7 @@ template <int ThreadBlockM, int ThreadBlockN, int ThreadBlockK,
 struct CutlassGemmAutotuneConfig
 {
     using ElementInput = InputElementType;
+    using ElementOutput = InputElementType; // match input dtype, like torch.matmul
 
     using ThreadBlockShape = cutlass::gemm::GemmShape<ThreadBlockM, ThreadBlockN, ThreadBlockK>;
     using WarpShape = cutlass::gemm::GemmShape<WarpM, WarpN, WarpK>;
@@ -60,7 +60,9 @@ struct CutlassGemmAutotuneConfig
 
     using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
         ElementOutput,
-        128 / cutlass::sizeof_bits<ElementOutput>::value>;
+        128 / cutlass::sizeof_bits<ElementOutput>::value,
+        ElementAccumulator,
+        ElementCompute>;
 
     using Gemm = cutlass::gemm::device::Gemm<
         ElementInput,
@@ -85,7 +87,7 @@ cudaError_t cutlass_gemm_autotune_launch(
     int M, int N, int K,
     const typename Config::ElementInput *d_A, int lda,
     const typename Config::ElementInput *d_B, int ldb,
-    ElementOutput *d_C, int ldc,
+    typename Config::ElementOutput *d_C, int ldc,
     float alpha, float beta,
     cudaStream_t stream = nullptr)
 {
@@ -170,7 +172,7 @@ cudaError_t dispatch_config(
     int M, int N, int K,
     const CutlassType *d_A, int lda,
     const CutlassType *d_B, int ldb,
-    ElementOutput *d_C, int ldc,
+    CutlassType *d_C, int ldc,
     float alpha, float beta,
     cudaStream_t stream)
 {
@@ -189,7 +191,7 @@ cudaError_t dispatch_cutlass_autotune(
     const int M, const int N, const int K,
     const CutlassType *d_A, int lda,
     const CutlassType *d_B, int ldb,
-    ElementOutput *d_C, int ldc,
+    CutlassType *d_C, int ldc,
     const float alpha, const float beta,
     cudaStream_t stream = nullptr)
 {
@@ -247,7 +249,7 @@ void cutlass_gemm_autotune_pytorch_wrapper(
 
     TORCH_CHECK(matrix_a.scalar_type() == expected_type, "Matrix A must be ", dtype_name);
     TORCH_CHECK(matrix_b.scalar_type() == expected_type, "Matrix B must be ", dtype_name);
-    TORCH_CHECK(output_matrix.scalar_type() == at::kFloat, "Output matrix must be float32");
+    TORCH_CHECK(output_matrix.scalar_type() == expected_type, "Output matrix must have same dtype as inputs");
 
     TORCH_CHECK(matrix_a.dim() == 2 && matrix_b.dim() == 2, "A and B must be 2D tensors");
 
@@ -262,7 +264,7 @@ void cutlass_gemm_autotune_pytorch_wrapper(
     // Get device pointers
     const auto *d_A = reinterpret_cast<const CutlassType *>(matrix_a.data_ptr<TorchType>());
     const auto *d_B = reinterpret_cast<const CutlassType *>(matrix_b.data_ptr<TorchType>());
-    auto *d_C = output_matrix.data_ptr<float>();
+    auto *d_C = reinterpret_cast<CutlassType *>(output_matrix.data_ptr<TorchType>());
 
     int lda = K;
     int ldb = N;

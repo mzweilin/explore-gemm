@@ -12,7 +12,6 @@
 
 using ElementAccumulator = float;
 using ElementCompute = float;
-using ElementOutput = float; // Always output FP32
 
 using LayoutA = cutlass::layout::RowMajor;
 using LayoutB = cutlass::layout::RowMajor;
@@ -27,10 +26,13 @@ template <typename InputElementType>
 struct CutlassGemmConfig
 {
     using ElementInput = InputElementType;
+    using ElementOutput = InputElementType; // match input dtype, like torch.matmul
 
     using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
         ElementOutput,
-        128 / cutlass::sizeof_bits<ElementOutput>::value>;
+        128 / cutlass::sizeof_bits<ElementOutput>::value,
+        ElementAccumulator,
+        ElementCompute>;
 
     using Gemm = cutlass::gemm::device::Gemm<
         ElementInput,
@@ -58,11 +60,14 @@ using InstructionShapeFP32 = cutlass::gemm::GemmShape<>;
 struct CutlassGemmConfigFP32
 {
     using ElementInput = float;
+    using ElementOutput = float;
 
     // SIMT epilogue must operate on scalars (vector length = 1)
     using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
         ElementOutput,
-        1>;
+        1,
+        ElementAccumulator,
+        ElementCompute>;
 
     using Gemm = cutlass::gemm::device::Gemm<
         ElementInput,
@@ -85,7 +90,7 @@ cudaError_t cutlass_gemm_launch(
     int M, int N, int K,
     const typename Config::ElementInput *d_A, int lda,
     const typename Config::ElementInput *d_B, int ldb,
-    ElementOutput *d_C, int ldc,
+    typename Config::ElementOutput *d_C, int ldc,
     float alpha, float beta,
     cudaStream_t stream = nullptr)
 {
@@ -133,7 +138,7 @@ void cutlass_gemm_pytorch_wrapper(
 
     TORCH_CHECK(matrix_a.scalar_type() == expected_type, "Matrix A must be ", dtype_name);
     TORCH_CHECK(matrix_b.scalar_type() == expected_type, "Matrix B must be ", dtype_name);
-    TORCH_CHECK(output_matrix.scalar_type() == at::kFloat, "Output matrix must be float32");
+    TORCH_CHECK(output_matrix.scalar_type() == expected_type, "Output matrix must have same dtype as inputs");
 
     TORCH_CHECK(matrix_a.dim() == 2 && matrix_b.dim() == 2, "A and B must be 2D tensors");
 
@@ -150,7 +155,7 @@ void cutlass_gemm_pytorch_wrapper(
         reinterpret_cast<const typename Config::ElementInput *>(matrix_a.data_ptr<TorchType>());
     const auto *d_B =
         reinterpret_cast<const typename Config::ElementInput *>(matrix_b.data_ptr<TorchType>());
-    auto *d_C = output_matrix.data_ptr<float>();
+    auto *d_C = reinterpret_cast<typename Config::ElementOutput *>(output_matrix.data_ptr<TorchType>());
 
     int lda = K;
     int ldb = N;
