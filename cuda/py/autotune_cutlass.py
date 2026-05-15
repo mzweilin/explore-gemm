@@ -260,8 +260,8 @@ def benchmark_config(
     Returns:
         Tuple of (median_time_ms, min_time_ms, max_time_ms) or None if config failed
     """
-    # Create output tensor (FP32)
-    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=torch.float32)
+    # Create output tensor matching input dtype, like torch.matmul
+    c = torch.empty((a.size(0), b.size(1)), device="cuda", dtype=a.dtype)
 
     # Select the appropriate kernel function
     if dtype == "float16":
