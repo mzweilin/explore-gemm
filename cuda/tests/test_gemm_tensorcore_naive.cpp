@@ -244,3 +244,29 @@ TEST_CASE("SGEMM Tensor Core Naive FP16 - Alpha/Beta scaling", "[sgemm_tensorcor
         REQUIRE(diff < 4e-2f);
     }
 }
+
+TEST_CASE("SGEMM Tensor Core Naive BF16 - Alpha/Beta scaling", "[sgemm_tensorcore_naive_bf16]") {
+    const int M = 512;
+    const int K = 512;
+    const int N = 512;
+    torch::manual_seed(42);
+
+    SECTION("Alpha = 1.0, Beta = 1.0") {
+        const float alpha = 1.0f;
+        const float beta = 1.0f;
+
+        auto a = torch::rand({M, K}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
+        auto b = torch::rand({K, N}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA));
+        auto c = torch::rand({M, N}, a.options());
+        auto c_orig = c.clone();
+
+        auto a_fp32 = a.to(torch::kFloat32);
+        auto b_fp32 = b.to(torch::kFloat32);
+        auto expected = alpha * torch::matmul(a_fp32, b_fp32) + beta * c_orig;
+        sgemm_tensorcore_naive_bf16(a, b, c, alpha, beta);
+
+        float diff = max_diff(c, expected);
+        std::cout << "Naive Alpha=1.0, Beta=1.0 BF16 max_diff: " << diff << std::endl;
+        REQUIRE(diff < 6e-1f);
+    }
+}
