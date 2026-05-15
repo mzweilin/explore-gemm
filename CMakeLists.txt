@@ -336,6 +336,11 @@ add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
 add_test(NAME test_gemm_tensorcore_double_buffered COMMAND test_gemm_tensorcore_double_buffered)
 add_test(NAME test_gemm_tensorcore_async COMMAND test_gemm_tensorcore_async)
 
+# Only add CUTLASS test if it was built
+if(CUTLASS_AVAILABLE)
+    add_test(NAME test_gemm_cutlass COMMAND test_gemm_cutlass)
+endif()
+
 # Only add Hopper test if it was built
 if(BUILD_HOPPER_KERNELS)
     add_test(NAME test_gemm_cutlass_hopper COMMAND test_gemm_cutlass_hopper)
